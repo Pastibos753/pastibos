@@ -50,7 +50,10 @@ function generateTrxCode(prefix) {
 
 // Health Check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', message: 'Backend PASTIBOS aktif di Vercel!', timestamp: new Date() });
+  res.json({ status: 'ONLINE',
+    message: '🚀 Selamat! Backend Platform Game PASTIBOS sudah aktif dan siap melayani data.',
+    database: 'TiDB Cloud Connected',
+    time: new Date() });
 });
 
 // REGISTER PENGGUNA
