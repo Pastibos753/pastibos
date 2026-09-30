@@ -71,7 +71,12 @@ function generateTrxCode(prefix) {
 // RUTE UMUM & HEALTH CHECK
 // ==========================================
 app.get('/', (req, res) => {
-  res.redirect('/admin');
+  res.json({
+    status: 'ONLINE',
+    message: '🚀 Selamat! Backend Platform Game PASTIBOS sudah aktif dan siap melayani data.',
+    database: 'TiDB Cloud Connected',
+    time: new Date()
+  });
 });
 
 app.get('/api/health', (req, res) => {
@@ -220,11 +225,10 @@ app.post('/api/wallet/topup', verifyToken, async (req, res) => {
     await conn.beginTransaction();
     const trxCode = generateTrxCode('TOP');
 
-    await conn.execute('UPDATE users SET balance = balance + ? WHERE id = ?', [amount, userId]);
     await conn.execute(
       `INSERT INTO transactions (user_id, transaction_code, type, amount, status, payment_method, description) 
-       VALUES (?, ?, 'TOPUP', ?, 'SUCCESS', ?, ?)`,
-      [userId, trxCode, amount, paymentMethod, `Deposit Saldo via ${paymentMethod}`]
+       VALUES (?, ?, 'TOPUP', ?, 'PENDING', ?, ?)`,
+      [userId, trxCode, amount, paymentMethod, `Deposit Saldo via ${paymentMethod} - Menunggu konfirmasi Admin`]
     );
 
     const [userRows] = await conn.execute('SELECT balance FROM users WHERE id = ?', [userId]);
@@ -232,8 +236,8 @@ app.post('/api/wallet/topup', verifyToken, async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: `Deposit sebesar Rp ${amount.toLocaleString('id-ID')} berhasil diproses!`,
-      data: { transaction_code: trxCode, amount, new_balance: parseFloat(userRows[0].balance) }
+      message: `Deposit sebesar Rp ${amount.toLocaleString('id-ID')} berhasil diajukan dan menunggu konfirmasi Admin.`,
+      data: { transaction_code: trxCode, amount, status: 'PENDING', new_balance: parseFloat(userRows[0].balance) }
     });
   } catch (err) {
     await conn.rollback();
@@ -268,11 +272,13 @@ app.post('/api/wallet/withdraw', verifyToken, async (req, res) => {
     }
 
     const trxCode = generateTrxCode('WDR');
+
+    // Dana ditahan saat pengajuan Withdraw. Jika Admin menolak, dana akan dikembalikan.
     await conn.execute('UPDATE users SET balance = balance - ? WHERE id = ?', [amount, userId]);
     await conn.execute(
       `INSERT INTO transactions (user_id, transaction_code, type, amount, status, payment_method, description) 
-       VALUES (?, ?, 'WITHDRAW', ?, 'SUCCESS', 'BANK_TRANSFER', ?)`,
-      [userId, trxCode, amount, `Penarikan saldo ke: ${destination}`]
+       VALUES (?, ?, 'WITHDRAW', ?, 'PENDING', 'BANK_TRANSFER', ?)`,
+      [userId, trxCode, amount, `Penarikan saldo ke: ${destination} - Menunggu konfirmasi Admin`]
     );
 
     const newBalance = currentBalance - amount;
@@ -280,8 +286,8 @@ app.post('/api/wallet/withdraw', verifyToken, async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: `Penarikan sebesar Rp ${amount.toLocaleString('id-ID')} berhasil diproses!`,
-      data: { transaction_code: trxCode, amount, new_balance: newBalance }
+      message: `Penarikan sebesar Rp ${amount.toLocaleString('id-ID')} berhasil diajukan dan menunggu konfirmasi Admin.`,
+      data: { transaction_code: trxCode, amount, status: 'PENDING', new_balance: newBalance }
     });
   } catch (err) {
     await conn.rollback();
@@ -464,6 +470,121 @@ app.post('/api/admin/users/toggle-status', verifyAdmin, async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: 'Gagal mengubah status akun.' });
+  }
+});
+
+// Setujui transaksi PENDING (Deposit / Withdraw) oleh Admin
+app.post('/api/admin/transactions/approve', verifyAdmin, async (req, res) => {
+  const transactionId = parseInt(req.body.transactionId, 10);
+  if (!transactionId) {
+    return res.status(400).json({ success: false, message: 'ID transaksi tidak valid.' });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [rows] = await conn.execute(
+      `SELECT id, user_id, type, amount, status FROM transactions WHERE id = ? FOR UPDATE`,
+      [transactionId]
+    );
+    if (rows.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({ success: false, message: 'Transaksi tidak ditemukan.' });
+    }
+
+    const trx = rows[0];
+    const amount = parseFloat(trx.amount);
+    if (trx.status !== 'PENDING') {
+      await conn.rollback();
+      return res.status(409).json({ success: false, message: `Transaksi sudah berstatus ${trx.status} dan tidak dapat diproses lagi.` });
+    }
+
+    // Deposit: saldo baru ditambahkan saat Admin menyetujui.
+    // Withdraw: saldo sudah ditahan saat pengajuan, sehingga approval hanya mengubah status.
+    if (trx.type === 'TOPUP') {
+      await conn.execute('UPDATE users SET balance = balance + ? WHERE id = ?', [amount, trx.user_id]);
+    } else if (trx.type !== 'WITHDRAW') {
+      await conn.rollback();
+      return res.status(400).json({ success: false, message: 'Tipe transaksi tidak didukung.' });
+    }
+
+    await conn.execute(
+      `UPDATE transactions SET status = 'SUCCESS', description = CONCAT(COALESCE(description, ''), ' - Disetujui Admin') WHERE id = ?`,
+      [transactionId]
+    );
+
+    const [userRows] = await conn.execute('SELECT balance FROM users WHERE id = ?', [trx.user_id]);
+    await conn.commit();
+
+    return res.json({
+      success: true,
+      message: 'Transaksi berhasil disetujui.',
+      data: { transaction_id: transactionId, status: 'SUCCESS', new_balance: parseFloat(userRows[0].balance) }
+    });
+  } catch (error) {
+    await conn.rollback();
+    console.error('Error approve transaction:', error);
+    return res.status(500).json({ success: false, message: 'Gagal menyetujui transaksi.' });
+  } finally {
+    conn.release();
+  }
+});
+
+// Tolak transaksi PENDING (Deposit / Withdraw) oleh Admin
+app.post('/api/admin/transactions/reject', verifyAdmin, async (req, res) => {
+  const transactionId = parseInt(req.body.transactionId, 10);
+  if (!transactionId) {
+    return res.status(400).json({ success: false, message: 'ID transaksi tidak valid.' });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [rows] = await conn.execute(
+      `SELECT id, user_id, type, amount, status FROM transactions WHERE id = ? FOR UPDATE`,
+      [transactionId]
+    );
+    if (rows.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({ success: false, message: 'Transaksi tidak ditemukan.' });
+    }
+
+    const trx = rows[0];
+    const amount = parseFloat(trx.amount);
+    if (trx.status !== 'PENDING') {
+      await conn.rollback();
+      return res.status(409).json({ success: false, message: `Transaksi sudah berstatus ${trx.status} dan tidak dapat diproses lagi.` });
+    }
+
+    // Withdraw: dana yang sebelumnya ditahan dikembalikan jika ditolak.
+    if (trx.type === 'WITHDRAW') {
+      await conn.execute('UPDATE users SET balance = balance + ? WHERE id = ?', [amount, trx.user_id]);
+    } else if (trx.type !== 'TOPUP') {
+      await conn.rollback();
+      return res.status(400).json({ success: false, message: 'Tipe transaksi tidak didukung.' });
+    }
+
+    await conn.execute(
+      `UPDATE transactions SET status = 'FAILED', description = CONCAT(COALESCE(description, ''), ' - Ditolak Admin') WHERE id = ?`,
+      [transactionId]
+    );
+
+    const [userRows] = await conn.execute('SELECT balance FROM users WHERE id = ?', [trx.user_id]);
+    await conn.commit();
+
+    return res.json({
+      success: true,
+      message: 'Transaksi berhasil ditolak.',
+      data: { transaction_id: transactionId, status: 'FAILED', new_balance: parseFloat(userRows[0].balance) }
+    });
+  } catch (error) {
+    await conn.rollback();
+    console.error('Error reject transaction:', error);
+    return res.status(500).json({ success: false, message: 'Gagal menolak transaksi.' });
+  } finally {
+    conn.release();
   }
 });
 
