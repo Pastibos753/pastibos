@@ -71,12 +71,7 @@ function generateTrxCode(prefix) {
 // RUTE UMUM & HEALTH CHECK
 // ==========================================
 app.get('/', (req, res) => {
-  res.json({
-    status: 'ONLINE',
-    message: '🚀 Selamat! Backend Platform Game PASTIBOS sudah aktif dan siap melayani data.',
-    database: 'TiDB Cloud Connected',
-    time: new Date()
-  });
+  res.redirect('/admin');
 });
 
 app.get('/api/health', (req, res) => {
