@@ -1580,45 +1580,11 @@ const ADMIN_HTML_CONTENT = `<!DOCTYPE html>
       }
     }
 
-    // Proses Approve / Reject transaksi PENDING
-    async function processTransaction(transactionId, action) {
-      const isApprove = action === 'approve';
-      const confirmText = isApprove
-        ? 'Yakin ingin MENYETUJUI transaksi ini? Saldo akan diproses sesuai tipe transaksi.'
-        : 'Yakin ingin MENOLAK transaksi ini? Deposit tidak akan masuk dan dana Withdraw akan dikembalikan.';
-
-      if (!confirm(confirmText)) return;
-
-      const token = localStorage.getItem('pastibos_admin_token');
-      try {
-        const res = await fetch(\`\${API_BASE}/admin/transactions/\${isApprove ? 'approve' : 'reject'}\`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': \`Bearer \${token}\`
-          },
-          body: JSON.stringify({ transactionId: transactionId })
-        });
-
-        const data = await res.json();
-        if (data.success) {
-          showToast(isApprove ? '✅ Transaksi berhasil disetujui.' : '❌ Transaksi berhasil ditolak.');
-          loadTransactions();
-          if (typeof loadPlayers === 'function') loadPlayers();
-        } else {
-          showToast(\`⚠️ \${data.message || 'Transaksi gagal diproses.'}\`);
-        }
-      } catch (err) {
-        console.error('Error processTransaction:', err);
-        showToast('Gagal menghubungi server.');
-      }
-    }
-
     // Riwayat Transaksi Platform
     async function loadTransactions() {
       const token = localStorage.getItem('pastibos_admin_token');
       const tbody = document.getElementById('trx-list-tbody');
-      tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 20px;">Memuat transaksi...</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 20px;">Memuat transaksi...</td></tr>';
 
       try {
         const res = await fetch(\`\${API_BASE}/admin/transactions\`, {
@@ -1642,11 +1608,13 @@ const ADMIN_HTML_CONTENT = `<!DOCTYPE html>
                 <td><span class="\${isTopup ? 'type-topup' : 'type-withdraw'}">\${isTopup ? '+ TOPUP' : '- WD'}</span></td>
                 <td><strong>Rp \${(parseFloat(t.amount) || 0).toLocaleString('id-ID')}</strong></td>
                 <td style="font-size: 11px;">\${escapeHtml(t.payment_method)}</td>
-                <td><span style="font-size: 10px; font-weight: 700; color: \${t.status === 'SUCCESS' ? 'var(--success)' : (t.status === 'FAILED' ? '#f87171' : '#f59e0b')};">\${t.status}</span></td>
+                <td>
+                  <span style="font-size: 10px; font-weight: 700; color: \${t.status === 'SUCCESS' ? 'var(--success)' : (t.status === 'FAILED' ? 'var(--danger)' : '#f59e0b')};">\${t.status}</span>
+                </td>
                 <td style="white-space: nowrap;">
                   \${t.status === 'PENDING' ? \`
-                    <button type="button" onclick="processTransaction(\${t.id}, 'approve')" style="border: 0; border-radius: 6px; padding: 6px 8px; margin-right: 4px; background: #16a34a; color: #fff; font-size: 10px; font-weight: 700; cursor: pointer;">✅ PROSES</button>
-                    <button type="button" onclick="processTransaction(\${t.id}, 'reject')" style="border: 0; border-radius: 6px; padding: 6px 8px; background: #dc2626; color: #fff; font-size: 10px; font-weight: 700; cursor: pointer;">❌ REJECT</button>
+                    <button class="btn btn-sm" style="background: var(--success); color: #07120a; margin-right: 4px; font-weight: 800;" onclick="processTransaction(\${t.id}, 'approve')">✅ PROSES</button>
+                    <button class="btn btn-sm" style="background: var(--danger); color: #fff; font-weight: 800;" onclick="processTransaction(\${t.id}, 'reject')">❌ REJECT</button>
                   \` : \`<span style="font-size: 10px; color: var(--text-muted);">—</span>\`}
                 </td>
               </tr>
@@ -1657,6 +1625,42 @@ const ADMIN_HTML_CONTENT = `<!DOCTYPE html>
         }
       } catch (err) {
         tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #f87171; padding: 20px;">Gagal memuat transaksi.</td></tr>';
+      }
+    }
+
+    // Proses transaksi PENDING: Approve / Reject
+    async function processTransaction(transactionId, action) {
+      const isApprove = action === 'approve';
+      const confirmText = isApprove
+        ? 'Yakin ingin MENYETUJUI transaksi ini? Saldo akan diproses sesuai tipe transaksi.'
+        : 'Yakin ingin MENOLAK transaksi ini? Transaksi akan menjadi FAILED dan dana Withdraw akan dikembalikan.';
+
+      if (!confirm(confirmText)) return;
+
+      const token = localStorage.getItem('pastibos_admin_token');
+      const endpoint = isApprove ? '/admin/transactions/approve' : '/admin/transactions/reject';
+
+      try {
+        const res = await fetch(API_BASE + endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + token
+          },
+          body: JSON.stringify({ transactionId })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          showToast(isApprove ? '✅ Transaksi berhasil disetujui.' : '❌ Transaksi berhasil ditolak.');
+          loadTransactions();
+        } else {
+          showToast('❌ ' + (data.message || 'Transaksi gagal diproses.'));
+        }
+      } catch (err) {
+        console.error('Process transaction error:', err);
+        showToast('❌ Gagal menghubungi server.');
       }
     }
 
