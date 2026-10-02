@@ -1,0 +1,1364 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#0b0d12">
+  <title>PASTIBOS Admin Control Center</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0b0d12;
+      --card-bg: #131720;
+      --card-border: #1e2433;
+      --primary: #f59e0b;
+      --primary-hover: #d97706;
+      --cyan: #06b6d4;
+      --success: #10b981;
+      --danger: #ef4444;
+      --text: #f3f4f6;
+      --text-muted: #8b95a5;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Inter', -apple-system, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* UTILS */
+    .hidden { display: none !important; }
+
+    /* LOGIN SCREEN */
+    .login-screen {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      background: #07090e;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .login-card {
+      width: 100%;
+      max-width: 380px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 30px 24px;
+      text-align: center;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+    }
+
+    .brand, .side-brand, .top-title {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      color: #fff;
+    }
+
+    .brand span, .side-brand span, .top-title span {
+      color: var(--primary);
+    }
+
+    .login-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+      letter-spacing: 1.5px;
+      font-weight: 700;
+      margin: 4px 0 24px;
+    }
+
+    input, select {
+      width: 100%;
+      background: #090b10;
+      border: 1px solid var(--card-border);
+      color: #fff;
+      padding: 12px 14px;
+      border-radius: 10px;
+      font-size: 14px;
+      outline: none;
+      margin-bottom: 12px;
+      transition: border-color 0.2s;
+    }
+
+    input:focus, select:focus {
+      border-color: var(--primary);
+    }
+
+    input:disabled {
+      background: #181d28;
+      color: var(--text-muted);
+    }
+
+    label {
+      display: block;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 12px 16px;
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: 13px;
+      border: none;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+
+    .btn.primary {
+      background: var(--primary);
+      color: #000;
+    }
+
+    .btn.primary:active {
+      background: var(--primary-hover);
+      transform: scale(0.98);
+    }
+
+    .btn.success { background: var(--success); color: #fff; }
+    .btn.danger { background: var(--danger); color: #fff; }
+    .btn.secondary { background: #222938; color: #d1d5db; }
+
+    .btn-sm {
+      padding: 7px 10px;
+      font-size: 11px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+    }
+
+    .msg {
+      margin-top: 14px;
+      font-size: 12px;
+      color: #f87171;
+      min-height: 16px;
+    }
+
+    /* TOPBAR */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      height: 58px;
+      background: #0f121a;
+      border-bottom: 1px solid var(--card-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+    }
+
+    .top-title {
+      font-size: 20px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .top-title small {
+      font-size: 10px;
+      background: rgba(245, 158, 11, 0.15);
+      border: 1px solid var(--primary);
+      color: var(--primary);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+
+    .hamburger, .refresh {
+      background: none;
+      border: none;
+      color: #fff;
+      font-size: 22px;
+      cursor: pointer;
+      width: 36px;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+    }
+
+    .hamburger:active, .refresh:active {
+      background: rgba(255,255,255,0.08);
+    }
+
+    /* SIDEBAR */
+    .sidebar {
+      position: fixed;
+      top: 0;
+      left: -280px;
+      width: 270px;
+      height: 100%;
+      background: #0c0f16;
+      border-right: 1px solid var(--card-border);
+      z-index: 500;
+      display: flex;
+      flex-direction: column;
+      transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 10px 0 30px rgba(0,0,0,0.6);
+    }
+
+    .sidebar.open {
+      left: 0;
+    }
+
+    .side-head {
+      padding: 18px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .close-side {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 26px;
+      cursor: pointer;
+      line-height: 1;
+    }
+
+    .side-admin {
+      padding: 14px 16px;
+      background: #11141e;
+      font-size: 12px;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .side-admin b { color: var(--primary); }
+
+    .side-nav {
+      flex: 1;
+      padding: 16px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 13.5px;
+      font-weight: 600;
+      border-radius: 10px;
+      cursor: pointer;
+      text-align: left;
+      transition: all 0.2s;
+    }
+
+    .nav-item .nav-icon {
+      font-size: 16px;
+    }
+
+    .nav-item.active {
+      background: rgba(245, 158, 11, 0.12);
+      color: var(--primary);
+    }
+
+    .nav-item:active {
+      background: #171b26;
+    }
+
+    .side-footer {
+      padding: 16px;
+      border-top: 1px solid var(--card-border);
+    }
+
+    .logout {
+      width: 100%;
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #f87171;
+      padding: 10px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.65);
+      backdrop-filter: blur(3px);
+      z-index: 450;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+
+    .overlay.open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    /* CONTENT & PAGES */
+    .content {
+      padding: 16px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    .page-title {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .page-title h1 {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 22px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .page-title p {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .count {
+      background: rgba(245, 158, 11, 0.12);
+      color: var(--primary);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .search {
+      margin-bottom: 14px;
+    }
+
+    .search input {
+      margin-bottom: 0;
+      padding: 11px 14px;
+      background: #11141c;
+    }
+
+    .list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    /* MEMBER CARD */
+    .item-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 15px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .item-card.suspended {
+      opacity: 0.75;
+      border-color: rgba(239, 68, 68, 0.35);
+    }
+
+    .card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+
+    .card-user {
+      font-size: 15px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .card-phone {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .badge-status {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+
+    .badge-active {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--success);
+      border: 1px solid var(--success);
+    }
+
+    .badge-suspended {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--danger);
+      border: 1px solid var(--danger);
+    }
+
+    .card-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      background: #090b10;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 11.5px;
+    }
+
+    .card-grid span { color: var(--text-muted); font-size: 10.5px; display: block; }
+    .card-grid strong { color: #e5e7eb; font-weight: 600; word-break: break-all; }
+
+    .card-saldo-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(245, 158, 11, 0.08);
+      border: 1px dashed rgba(245, 158, 11, 0.25);
+      padding: 8px 12px;
+      border-radius: 8px;
+    }
+
+    .card-saldo-row span { font-size: 11px; color: var(--text-muted); }
+    .card-saldo-val {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--primary);
+    }
+
+    .card-actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .card-actions button {
+      flex: 1;
+      white-space: nowrap;
+    }
+
+    /* FILTERS (TRANSAKSI) */
+    .filters {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 14px;
+      overflow-x: auto;
+      scrollbar-width: none;
+      padding-bottom: 4px;
+    }
+
+    .filters::-webkit-scrollbar { display: none; }
+
+    .filter {
+      padding: 7px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--card-border);
+      background: var(--card-bg);
+      color: var(--text-muted);
+      font-size: 11.5px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .filter.active {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #000;
+    }
+
+    /* MODAL */
+    .modal {
+      position: fixed;
+      inset: 0;
+      z-index: 600;
+      background: rgba(0,0,0,0.75);
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .modal-card {
+      width: 100%;
+      max-width: 420px;
+      max-height: 90vh;
+      overflow-y: auto;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 22px 18px;
+      position: relative;
+      box-shadow: 0 15px 35px rgba(0,0,0,0.7);
+    }
+
+    .modal-close {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 24px;
+      cursor: pointer;
+      line-height: 1;
+    }
+
+    .modal-card h2 {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 16px;
+      color: #fff;
+    }
+
+    /* DETAIL BODY */
+    .detail-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      font-size: 13px;
+    }
+
+    .detail-row:last-child { border-bottom: none; }
+    .detail-row span { color: var(--text-muted); }
+    .detail-row strong { color: #fff; text-align: right; }
+
+    /* TOAST */
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1c2230;
+      border: 1px solid #2d3748;
+      color: #fff;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 12.5px;
+      font-weight: 600;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+      z-index: 1200;
+      display: none;
+      max-width: 90%;
+      text-align: center;
+    }
+
+    /* QUICK CHIPS FOR SALDO */
+    .chips-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+
+    .chip-btn {
+      background: #090b10;
+      border: 1px solid var(--card-border);
+      color: #d1d5db;
+      padding: 8px 4px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      text-align: center;
+      cursor: pointer;
+    }
+
+    .chip-btn:active {
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- LOGIN ADMIN -->
+  <div id="loginScreen" class="login-screen">
+    <div class="login-card">
+      <div class="brand">PASTI<span>BOS</span></div>
+      <div class="login-sub">ADMIN CONTROL CENTER</div>
+
+      <input id="loginUser" type="text" autocomplete="username"
+             placeholder="Username Admin">
+
+      <input id="loginPass" type="password" autocomplete="current-password"
+             placeholder="Password Admin">
+
+      <button class="btn primary" type="button" onclick="adminLogin()">
+        MASUK
+      </button>
+
+      <div id="loginMsg" class="msg"></div>
+
+      <div style="margin-top: 18px; font-size: 11px; color: var(--text-muted); border-top: 1px solid var(--card-border); padding-top: 14px;">
+        Belum inisialisasi akun admin?<br>
+        <a href="https://pastibos.vercel.app/api/admin/setup" target="_blank" style="color: var(--primary); text-decoration: none; font-weight: 600;">
+          👉 Klik di sini untuk Setup Admin Otomatis
+        </a>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ADMIN CONTROL CENTER -->
+  <div id="app" class="app hidden">
+
+    <!-- HAMBURGER SIDEBAR -->
+    <aside id="sidebar" class="sidebar">
+
+      <div class="side-head">
+        <div class="side-brand">PASTI<span>BOS</span></div>
+
+        <button class="close-side" type="button"
+                onclick="closeSidebar()" aria-label="Tutup menu">
+          ×
+        </button>
+      </div>
+
+      <div class="side-admin">
+        Admin: <b id="adminName">-</b>
+      </div>
+
+      <nav class="side-nav">
+
+        <button class="nav-item active" data-page="members"
+                type="button" onclick="showPage('members')">
+          <span class="nav-icon">👥</span>
+          <span>Daftar Member</span>
+        </button>
+
+        <button class="nav-item" data-page="settings"
+                type="button" onclick="showPage('settings')">
+          <span class="nav-icon">⚙️</span>
+          <span>Setting Member</span>
+        </button>
+
+        <button class="nav-item" data-page="transactions"
+                type="button" onclick="showPage('transactions')">
+          <span class="nav-icon">💰</span>
+          <span>Transaksi Member</span>
+        </button>
+
+      </nav>
+
+      <div class="side-footer">
+        <button class="logout" type="button" onclick="logout()">
+          🚪 Keluar
+        </button>
+      </div>
+
+    </aside>
+
+    <div id="overlay" class="overlay" onclick="closeSidebar()"></div>
+
+
+    <!-- TOPBAR -->
+    <header class="topbar">
+
+      <button class="hamburger" type="button"
+              onclick="openSidebar()" aria-label="Buka menu">
+        ☰
+      </button>
+
+      <div class="top-title">
+        PASTI<span>BOS</span>
+        <small>ADMIN</small>
+      </div>
+
+      <button class="refresh" type="button"
+              onclick="refreshCurrent()" aria-label="Refresh">
+        ↻
+      </button>
+
+    </header>
+
+
+    <!-- CONTENT -->
+    <main class="content">
+
+      <!-- DAFTAR MEMBER -->
+      <section id="page-members" class="page">
+
+        <div class="page-title">
+          <div>
+            <h1>Daftar Member</h1>
+            <p>Semua member terdaftar. Akun terbaru berada paling atas.</p>
+          </div>
+
+          <span id="memberCount" class="count">0 Member</span>
+        </div>
+
+        <div class="search">
+          <input id="memberSearch" type="search"
+                 placeholder="🔎 Cari username / nomor HP..."
+                 oninput="renderMembers()">
+        </div>
+
+        <div id="memberList" class="list"></div>
+
+      </section>
+
+
+      <!-- SETTING MEMBER -->
+      <section id="page-settings" class="page hidden">
+
+        <div class="page-title">
+          <div>
+            <h1>Setting Member</h1>
+            <p>Pilih member untuk melihat dan mengubah data akun.</p>
+          </div>
+        </div>
+
+        <div class="search">
+          <input id="settingSearch" type="search"
+                 placeholder="🔎 Cari member..."
+                 oninput="renderSettings()">
+        </div>
+
+        <div id="settingList" class="list"></div>
+
+      </section>
+
+
+      <!-- TRANSAKSI MEMBER -->
+      <section id="page-transactions" class="page hidden">
+
+        <div class="page-title">
+          <div>
+            <h1>Transaksi Member</h1>
+            <p>Monitor Deposit dan Withdraw seluruh member.</p>
+          </div>
+
+          <span id="trxCount" class="count">0</span>
+        </div>
+
+        <div class="filters">
+
+          <button class="filter active" type="button"
+                  onclick="filterTrx('ALL', this)">
+            SEMUA
+          </button>
+
+          <button class="filter" type="button"
+                  onclick="filterTrx('TOPUP', this)">
+            DEPOSIT
+          </button>
+
+          <button class="filter" type="button"
+                  onclick="filterTrx('WITHDRAW', this)">
+            WITHDRAW
+          </button>
+
+          <button class="filter" type="button"
+                  onclick="filterTrx('PENDING', this)">
+            PENDING
+          </button>
+
+        </div>
+
+        <div id="trxList" class="list"></div>
+
+      </section>
+
+    </main>
+  </div>
+
+
+  <!-- DETAIL MEMBER MODAL -->
+  <div id="detailModal" class="modal hidden">
+    <div class="modal-card">
+
+      <button class="modal-close" type="button"
+              onclick="closeModal('detailModal')"
+              aria-label="Tutup">×</button>
+
+      <h2>Detail Member</h2>
+      <div id="detailBody"></div>
+
+    </div>
+  </div>
+
+
+  <!-- EDIT / SETTING MEMBER MODAL -->
+  <div id="editModal" class="modal hidden">
+    <div class="modal-card">
+
+      <button class="modal-close" type="button"
+              onclick="closeModal('editModal')"
+              aria-label="Tutup">×</button>
+
+      <h2>Setting Member</h2>
+
+      <input type="hidden" id="editId">
+
+      <label for="editUsername">Username</label>
+      <input id="editUsername" disabled>
+
+      <label for="editPhone">Nomor HP</label>
+      <input id="editPhone">
+
+      <label for="editBank">Bank / E-Wallet</label>
+      <input id="editBank">
+
+      <label for="editAccountName">Nama Pemilik</label>
+      <input id="editAccountName">
+
+      <label for="editAccountNumber">Nomor Rekening</label>
+      <input id="editAccountNumber">
+
+      <label for="editStatus">Status Akun</label>
+      <select id="editStatus">
+        <option value="active">ACTIVE</option>
+        <option value="suspended">SUSPENDED</option>
+      </select>
+
+      <button class="btn primary" type="button"
+              id="btnSaveMember"
+              onclick="saveMember()">
+        💾 SIMPAN PERUBAHAN
+      </button>
+
+      <div id="editMsg" class="msg"></div>
+
+    </div>
+  </div>
+
+
+  <!-- ATUR SALDO MODAL (+ / - Saldo Cepat) -->
+  <div id="saldoModal" class="modal hidden">
+    <div class="modal-card">
+
+      <button class="modal-close" type="button"
+              onclick="closeModal('saldoModal')"
+              aria-label="Tutup">×</button>
+
+      <h2 id="saldoModalTitle">Atur Saldo</h2>
+      <p id="saldoModalTarget" style="font-size: 12px; color: var(--text-muted); margin-bottom: 14px;">Member: -</p>
+
+      <input type="hidden" id="saldoUserId">
+
+      <label>Tindakan</label>
+      <select id="saldoAction">
+        <option value="add">➕ TAMBAH SALDO (Deposit)</option>
+        <option value="subtract">➖ KURANGI SALDO (Withdraw)</option>
+      </select>
+
+      <label>Nominal Cepat</label>
+      <div class="chips-grid">
+        <div class="chip-btn" onclick="setQuickSaldo(10000)">10 Ribu</div>
+        <div class="chip-btn" onclick="setQuickSaldo(50000)">50 Ribu</div>
+        <div class="chip-btn" onclick="setQuickSaldo(100000)">100 Ribu</div>
+        <div class="chip-btn" onclick="setQuickSaldo(250000)">250 Ribu</div>
+        <div class="chip-btn" onclick="setQuickSaldo(500000)">500 Ribu</div>
+        <div class="chip-btn" onclick="setQuickSaldo(1000000)">1 Juta</div>
+      </div>
+
+      <label>Nominal Rupiah (Rp)</label>
+      <input type="number" id="saldoAmount" placeholder="Contoh: 100000" min="1000" step="1000">
+
+      <label>Catatan (Opsional)</label>
+      <input type="text" id="saldoNote" placeholder="Contoh: Bonus Deposit / TopUp">
+
+      <button class="btn primary" type="button" id="btnConfirmSaldo" onclick="submitSaldo()">
+        SIMPAN PERUBAHAN SALDO
+      </button>
+    </div>
+  </div>
+
+
+  <!-- NOTIFICATION TOAST -->
+  <div id="toast"></div>
+
+  <!-- ADMIN JAVASCRIPT (TERINTEGRASI 100% KE DATABASE TiDB CLOUD & VERCEL) -->
+  <script>
+    const API_BASE = 'https://pastibos.vercel.app/api';
+
+    let allMembers = [];
+    let allTransactions = [];
+    let currentTrxFilter = 'ALL';
+    let currentPage = 'members';
+
+    document.addEventListener('DOMContentLoaded', () => {
+      checkAuth();
+    });
+
+    function checkAuth() {
+      const token = localStorage.getItem('pastibos_admin_token');
+      const adminName = localStorage.getItem('pastibos_admin_username');
+
+      if (token) {
+        document.getElementById('loginScreen').classList.add('hidden');
+        document.getElementById('app').classList.remove('hidden');
+        document.getElementById('adminName').textContent = adminName || 'Admin';
+        loadAllData();
+      } else {
+        document.getElementById('loginScreen').classList.remove('hidden');
+        document.getElementById('app').classList.add('hidden');
+      }
+    }
+
+    async function adminLogin() {
+      const user = document.getElementById('loginUser').value.trim();
+      const pass = document.getElementById('loginPass').value.trim();
+      const msg = document.getElementById('loginMsg');
+
+      if (!user || !pass) {
+        msg.textContent = 'Username dan password wajib diisi!';
+        return;
+      }
+
+      msg.textContent = 'Memverifikasi akun admin...';
+
+      try {
+        const res = await fetch(`${API_BASE}/admin/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: user, password: pass })
+        });
+        const result = await res.json();
+
+        if (result.success && result.data && result.data.token) {
+          localStorage.setItem('pastibos_admin_token', result.data.token);
+          localStorage.setItem('pastibos_admin_username', result.data.username);
+          msg.textContent = '';
+          showToast('✅ Berhasil login sebagai Admin!');
+          checkAuth();
+        } else {
+          msg.textContent = result.message || 'Login gagal!';
+        }
+      } catch (err) {
+        msg.textContent = 'Gagal terhubung ke server backend!';
+      }
+    }
+
+    function logout() {
+      if (confirm('Keluar dari Admin Control Center?')) {
+        localStorage.removeItem('pastibos_admin_token');
+        localStorage.removeItem('pastibos_admin_username');
+        checkAuth();
+      }
+    }
+
+    /* SIDEBAR HANDLERS */
+    function openSidebar() {
+      document.getElementById('sidebar').classList.add('open');
+      document.getElementById('overlay').classList.add('open');
+    }
+
+    function closeSidebar() {
+      document.getElementById('sidebar').classList.remove('open');
+      document.getElementById('overlay').classList.remove('open');
+    }
+
+    function showPage(pageId) {
+      currentPage = pageId;
+      document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
+      document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+
+      const activePage = document.getElementById(`page-${pageId}`);
+      if (activePage) activePage.classList.remove('hidden');
+
+      const activeNav = document.querySelector(`.nav-item[data-page="${pageId}"]`);
+      if (activeNav) activeNav.classList.add('active');
+
+      closeSidebar();
+
+      if (pageId === 'transactions') {
+        renderTransactions();
+      }
+    }
+
+    function refreshCurrent() {
+      showToast('Memperbarui data...');
+      loadAllData();
+    }
+
+    /* LOAD DATA FROM TiDB CLOUD */
+    async function loadAllData() {
+      const token = localStorage.getItem('pastibos_admin_token');
+      if (!token) return;
+
+      try {
+        // 1. Ambil Pemain
+        const resUsers = await fetch(`${API_BASE}/admin/users`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (resUsers.status === 401 || resUsers.status === 403) {
+          logout();
+          return;
+        }
+
+        const dataUsers = await resUsers.json();
+        if (dataUsers.success) {
+          allMembers = dataUsers.data || [];
+          document.getElementById('memberCount').textContent = `${allMembers.length} Member`;
+          renderMembers();
+          renderSettings();
+        }
+
+        // 2. Ambil Transaksi
+        const resTrx = await fetch(`${API_BASE}/admin/transactions`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const dataTrx = await resTrx.json();
+        if (dataTrx.success) {
+          allTransactions = dataTrx.data || [];
+          document.getElementById('trxCount').textContent = `${allTransactions.length} Trx`;
+          renderTransactions();
+        }
+      } catch (err) {
+        showToast('Gagal memuat data dari server!');
+      }
+    }
+
+    /* 1. RENDER DAFTAR MEMBER */
+    function renderMembers() {
+      const list = document.getElementById('memberList');
+      const keyword = (document.getElementById('memberSearch').value || '').toLowerCase().trim();
+
+      const filtered = allMembers.filter(m => 
+        (m.username && m.username.toLowerCase().includes(keyword)) ||
+        (m.phone && m.phone.toLowerCase().includes(keyword)) ||
+        (m.account_number && m.account_number.toLowerCase().includes(keyword))
+      );
+
+      if (filtered.length === 0) {
+        list.innerHTML = '<div style="text-align: center; padding: 30px; color: var(--text-muted); font-size: 13px;">Tidak ada member ditemukan.</div>';
+        return;
+      }
+
+      list.innerHTML = filtered.map(m => {
+        const isSuspended = m.status === 'suspended';
+        return `
+          <div class="item-card ${isSuspended ? 'suspended' : ''}">
+            <div class="card-top">
+              <div>
+                <div class="card-user">👤 ${escapeHtml(m.username)}</div>
+                <div class="card-phone">📱 ${escapeHtml(m.phone || '-')}</div>
+              </div>
+              <span class="badge-status ${isSuspended ? 'badge-suspended' : 'badge-active'}">
+                ${isSuspended ? 'SUSPENDED' : 'ACTIVE'}
+              </span>
+            </div>
+
+            <div class="card-grid">
+              <div>
+                <span>Bank / E-Wallet</span>
+                <strong>${escapeHtml(m.bank_name || '-')}</strong>
+              </div>
+              <div>
+                <span>Nomor Rekening</span>
+                <strong>${escapeHtml(m.account_number || '-')}</strong>
+              </div>
+            </div>
+
+            <div class="card-saldo-row">
+              <span>SALDO AKUN:</span>
+              <span class="card-saldo-val">Rp ${(parseFloat(m.balance) || 0).toLocaleString('id-ID')}</span>
+            </div>
+
+            <div class="card-actions">
+              <button class="btn-sm btn primary" onclick="openSaldoModal(${m.id}, '${escapeHtml(m.username)}', 'add')">
+                ➕ Tambah Saldo
+              </button>
+              <button class="btn-sm btn danger" onclick="openSaldoModal(${m.id}, '${escapeHtml(m.username)}', 'subtract')">
+                ➖ Potong Saldo
+              </button>
+              <button class="btn-sm btn secondary" onclick="viewDetail(${m.id})">
+                👁️ Detail
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    /* 2. RENDER SETTING MEMBER */
+    function renderSettings() {
+      const list = document.getElementById('settingList');
+      const keyword = (document.getElementById('settingSearch').value || '').toLowerCase().trim();
+
+      const filtered = allMembers.filter(m => 
+        (m.username && m.username.toLowerCase().includes(keyword)) ||
+        (m.account_number && m.account_number.toLowerCase().includes(keyword))
+      );
+
+      if (filtered.length === 0) {
+        list.innerHTML = '<div style="text-align: center; padding: 30px; color: var(--text-muted); font-size: 13px;">Tidak ada member ditemukan.</div>';
+        return;
+      }
+
+      list.innerHTML = filtered.map(m => `
+        <div class="item-card">
+          <div class="card-top">
+            <div>
+              <div class="card-user">⚙️ ${escapeHtml(m.username)}</div>
+              <div class="card-phone">${escapeHtml(m.bank_name || '-')} • ${escapeHtml(m.account_number || '-')}</div>
+            </div>
+            <button class="btn-sm btn primary" onclick="openEditModal(${m.id})">
+              Ubah Data
+            </button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    /* 3. RENDER TRANSAKSI */
+    function filterTrx(type, btn) {
+      currentTrxFilter = type;
+      document.querySelectorAll('.filter').forEach(f => f.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+      renderTransactions();
+    }
+
+    function renderTransactions() {
+      const list = document.getElementById('trxList');
+
+      let filtered = allTransactions;
+      if (currentTrxFilter === 'TOPUP') {
+        filtered = allTransactions.filter(t => t.type === 'TOPUP');
+      } else if (currentTrxFilter === 'WITHDRAW') {
+        filtered = allTransactions.filter(t => t.type === 'WITHDRAW');
+      } else if (currentTrxFilter === 'PENDING') {
+        filtered = allTransactions.filter(t => t.status === 'PENDING');
+      }
+
+      if (filtered.length === 0) {
+        list.innerHTML = '<div style="text-align: center; padding: 30px; color: var(--text-muted); font-size: 13px;">Tidak ada transaksi.</div>';
+        return;
+      }
+
+      list.innerHTML = filtered.map(t => {
+        const isTopup = t.type === 'TOPUP';
+        return `
+          <div class="item-card">
+            <div class="card-top">
+              <div>
+                <div class="card-user">${isTopup ? '📥 DEPOSIT' : '📤 WITHDRAW'} - ${escapeHtml(t.username || '-')}</div>
+                <div class="card-phone">${formatDate(t.created_at)} • ${escapeHtml(t.transaction_code)}</div>
+              </div>
+              <strong style="color: ${isTopup ? 'var(--success)' : '#f87171'}; font-size: 15px;">
+                ${isTopup ? '+' : '-'} Rp ${(parseFloat(t.amount) || 0).toLocaleString('id-ID')}
+              </strong>
+            </div>
+            <div style="font-size: 11.5px; color: var(--text-muted); display: flex; justify-content: space-between;">
+              <span>Metode: ${escapeHtml(t.payment_method)}</span>
+              <span style="font-weight: 700; color: ${t.status === 'SUCCESS' ? 'var(--success)' : '#f59e0b'};">${t.status}</span>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    /* MODAL: DETAIL MEMBER */
+    function viewDetail(userId) {
+      const m = allMembers.find(u => u.id === userId);
+      if (!m) return;
+
+      const body = document.getElementById('detailBody');
+      body.innerHTML = `
+        <div class="detail-row"><span>ID Member</span><strong>#${m.id}</strong></div>
+        <div class="detail-row"><span>Username</span><strong>${escapeHtml(m.username)}</strong></div>
+        <div class="detail-row"><span>Nomor HP</span><strong>${escapeHtml(m.phone || '-')}</strong></div>
+        <div class="detail-row"><span>Bank / E-Wallet</span><strong>${escapeHtml(m.bank_name || '-')}</strong></div>
+        <div class="detail-row"><span>Nama Pemilik</span><strong>${escapeHtml(m.account_name || '-')}</strong></div>
+        <div class="detail-row"><span>Nomor Rekening</span><strong>${escapeHtml(m.account_number || '-')}</strong></div>
+        <div class="detail-row"><span>Saldo Sekarang</span><strong style="color: var(--primary);">Rp ${(parseFloat(m.balance) || 0).toLocaleString('id-ID')}</strong></div>
+        <div class="detail-row"><span>Status Akun</span><strong>${(m.status || 'ACTIVE').toUpperCase()}</strong></div>
+        <div class="detail-row"><span>Tanggal Daftar</span><strong>${formatDate(m.created_at)}</strong></div>
+      `;
+
+      openModal('detailModal');
+    }
+
+    /* MODAL: EDIT MEMBER */
+    function openEditModal(userId) {
+      const m = allMembers.find(u => u.id === userId);
+      if (!m) return;
+
+      document.getElementById('editId').value = m.id;
+      document.getElementById('editUsername').value = m.username;
+      document.getElementById('editPhone').value = m.phone || '';
+      document.getElementById('editBank').value = m.bank_name || '';
+      document.getElementById('editAccountName').value = m.account_name || '';
+      document.getElementById('editAccountNumber').value = m.account_number || '';
+      document.getElementById('editStatus').value = m.status || 'active';
+      document.getElementById('editMsg').textContent = '';
+
+      openModal('editModal');
+    }
+
+    async function saveMember() {
+      const token = localStorage.getItem('pastibos_admin_token');
+      const id = document.getElementById('editId').value;
+      const phone = document.getElementById('editPhone').value.trim();
+      const bank = document.getElementById('editBank').value.trim();
+      const accName = document.getElementById('editAccountName').value.trim();
+      const accNum = document.getElementById('editAccountNumber').value.trim();
+      const status = document.getElementById('editStatus').value;
+      const btn = document.getElementById('btnSaveMember');
+      const msg = document.getElementById('editMsg');
+
+      btn.disabled = true;
+      btn.textContent = 'Menyimpan...';
+
+      try {
+        // Toggle status jika berubah
+        await fetch(`${API_BASE}/admin/users/toggle-status`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ userId: id, status: status })
+        });
+
+        showToast('✅ Data status member berhasil diperbarui!');
+        closeModal('editModal');
+        loadAllData();
+      } catch (err) {
+        msg.textContent = 'Gagal menyimpan perubahan!';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '💾 SIMPAN PERUBAHAN';
+      }
+    }
+
+    /* MODAL: SALDO (+ / -) */
+    function openSaldoModal(userId, username, action) {
+      document.getElementById('saldoUserId').value = userId;
+      document.getElementById('saldoModalTarget').textContent = `Target Member: ${username}`;
+      document.getElementById('saldoAction').value = action;
+      document.getElementById('saldoAmount').value = '';
+      document.getElementById('saldoNote').value = '';
+      openModal('saldoModal');
+    }
+
+    function setQuickSaldo(amt) {
+      document.getElementById('saldoAmount').value = amt;
+    }
+
+    async function submitSaldo() {
+      const token = localStorage.getItem('pastibos_admin_token');
+      const userId = document.getElementById('saldoUserId').value;
+      const action = document.getElementById('saldoAction').value;
+      const amount = parseFloat(document.getElementById('saldoAmount').value);
+      const note = document.getElementById('saldoNote').value.trim();
+      const btn = document.getElementById('btnConfirmSaldo');
+
+      if (!amount || isNaN(amount) || amount <= 0) {
+        showToast('Masukkan nominal rupiah yang valid!');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Memproses...';
+
+      try {
+        const res = await fetch(`${API_BASE}/admin/users/adjust-balance`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            userId: userId,
+            amount: amount,
+            action: action,
+            note: note || (action === 'add' ? 'Tambah saldo oleh Admin' : 'Potong saldo oleh Admin')
+          })
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          showToast(`✅ ${data.message}`);
+          closeModal('saldoModal');
+          loadAllData();
+        } else {
+          showToast(`❌ ${data.message}`);
+        }
+      } catch (err) {
+        showToast('Gagal memproses saldo ke server.');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'SIMPAN PERUBAHAN SALDO';
+      }
+    }
+
+    /* MODAL HELPERS */
+    function openModal(id) {
+      const m = document.getElementById(id);
+      if (m) m.classList.remove('hidden');
+    }
+
+    function closeModal(id) {
+      const m = document.getElementById(id);
+      if (m) m.classList.add('hidden');
+    }
+
+    /* UTILS */
+    function showToast(text) {
+      const t = document.getElementById('toast');
+      t.textContent = text;
+      t.style.display = 'block';
+      setTimeout(() => { t.style.display = 'none'; }, 3500);
+    }
+
+    function formatDate(dStr) {
+      if (!dStr) return '-';
+      const d = new Date(dStr);
+      return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/[&<>"']/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
+    }
+  </script>
+</body>
+</html>
