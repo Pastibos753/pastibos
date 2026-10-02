@@ -895,6 +895,91 @@ app.get('/api/admin-panel', (req, res) => {
 
 });
 
+
+// ==========================================
+// REGISTER MEMBER
+// ==========================================
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { username, password, phone, bank_name, account_name, account_number, referral_code } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({ success: false, message: 'Username dan password wajib diisi!' });
+    }
+
+    // Cek apakah username sudah ada
+    const [existing] = await pool.execute("SELECT id FROM users WHERE username = ? LIMIT 1", [username]);
+    if (existing.length > 0) {
+      return res.status(400).json({ success: false, message: 'Username sudah digunakan!' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    await pool.execute(
+      `INSERT INTO users (username, password_hash, phone, bank_name, account_name, account_number, referral_code, balance, status, role)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0.00, 'active', 'member')`,
+      [username, hashedPassword, phone || '', bank_name || '', account_name || '', account_number || '', referral_code || '']
+    );
+
+    return res.json({ success: true, message: 'Registrasi berhasil! Silakan login.' });
+  } catch (error) {
+    console.error('Register Error:', error);
+    return res.status(500).json({ success: false, message: 'Server error saat registrasi.' });
+  }
+});
+
+// ==========================================
+// LOGIN MEMBER
+// ==========================================
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({ success: false, message: 'Username dan password wajib diisi!' });
+    }
+
+    const [rows] = await pool.execute("SELECT * FROM users WHERE username = ? LIMIT 1", [username]);
+    if (rows.length === 0) {
+      return res.status(401).json({ success: false, message: 'Username tidak ditemukan!' });
+    }
+
+    const user = rows[0];
+
+    if (user.status === 'suspended') {
+      return res.status(403).json({ success: false, message: 'Akun Anda telah diblokir/suspended.' });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password_hash);
+    if (!isMatch) {
+      return res.status(401).json({ success: false, message: 'Kata sandi salah!' });
+    }
+
+    const token = jwt.sign(
+      { id: user.id, username: user.username, role: user.role },
+      process.env.JWT_SECRET || 'pastibos_secret_key_123456789',
+      { expiresIn: '7d' }
+    );
+
+    return res.json({
+      success: true,
+      message: 'Login Berhasil!',
+      data: {
+        token,
+        user: {
+          id: user.id,
+          username: user.username,
+          balance: parseFloat(user.balance || 0)
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Login Error:', error);
+    return res.status(500).json({ success: false, message: 'Server error saat login.' });
+  }
+});
+
 // ==========================================
 // EXPORT APP UNTUK VERCEL
 // ==========================================
