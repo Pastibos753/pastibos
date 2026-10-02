@@ -1,3 +1,4 @@
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const mysql = require('mysql2/promise');
@@ -9,7 +10,38 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 app.use(cors());
+
+// CORS Lengkap untuk Netlify & Mobile
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  next();
+});
+
 app.use(express.json());
+
+// Normalisasi routing Vercel Serverless
+app.use((req, res, next) => {
+  const matchedPath = req.headers['x-matched-path'] || req.headers['x-vercel-matched-path'];
+  if (matchedPath && matchedPath !== '/server.js') {
+    req.url = matchedPath;
+  } else if (req.url === '/server.js') {
+    // Jika Vercel me-rewrite ke /server.js atau user mengetik /server.js
+    if (req.headers.accept && req.headers.accept.includes('text/html')) {
+      req.url = '/admin';
+    } else {
+      req.url = '/';
+    }
+  } else if (req.url.startsWith('/server.js')) {
+    req.url = req.url.replace('/server.js', '') || '/';
+  }
+  next();
+});
+
 app.use(express.urlencoded({ extended: true }));
 
 // 1. KONEKSI DATABASE MYSQL (TIDB CLOUD SSL)
@@ -71,6 +103,10 @@ function generateTrxCode(prefix) {
 // RUTE UMUM & HEALTH CHECK
 // ==========================================
 app.get('/', (req, res) => {
+  if (req.headers.accept && req.headers.accept.includes('text/html')) {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.send(ADMIN_HTML_CONTENT);
+  }
   res.json({
     status: 'ONLINE',
     message: '🚀 Selamat! Backend Platform Game PASTIBOS sudah aktif dan siap melayani data.',
@@ -225,10 +261,11 @@ app.post('/api/wallet/topup', verifyToken, async (req, res) => {
     await conn.beginTransaction();
     const trxCode = generateTrxCode('TOP');
 
+    await conn.execute('UPDATE users SET balance = balance + ? WHERE id = ?', [amount, userId]);
     await conn.execute(
       `INSERT INTO transactions (user_id, transaction_code, type, amount, status, payment_method, description) 
-       VALUES (?, ?, 'TOPUP', ?, 'PENDING', ?, ?)`,
-      [userId, trxCode, amount, paymentMethod, `Deposit Saldo via ${paymentMethod} - Menunggu konfirmasi Admin`]
+       VALUES (?, ?, 'TOPUP', ?, 'SUCCESS', ?, ?)`,
+      [userId, trxCode, amount, paymentMethod, `Deposit Saldo via ${paymentMethod}`]
     );
 
     const [userRows] = await conn.execute('SELECT balance FROM users WHERE id = ?', [userId]);
@@ -236,8 +273,8 @@ app.post('/api/wallet/topup', verifyToken, async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: `Deposit sebesar Rp ${amount.toLocaleString('id-ID')} berhasil diajukan dan menunggu konfirmasi Admin.`,
-      data: { transaction_code: trxCode, amount, status: 'PENDING', new_balance: parseFloat(userRows[0].balance) }
+      message: `Deposit sebesar Rp ${amount.toLocaleString('id-ID')} berhasil diproses!`,
+      data: { transaction_code: trxCode, amount, new_balance: parseFloat(userRows[0].balance) }
     });
   } catch (err) {
     await conn.rollback();
@@ -272,13 +309,11 @@ app.post('/api/wallet/withdraw', verifyToken, async (req, res) => {
     }
 
     const trxCode = generateTrxCode('WDR');
-
-    // Dana ditahan saat pengajuan Withdraw. Jika Admin menolak, dana akan dikembalikan.
     await conn.execute('UPDATE users SET balance = balance - ? WHERE id = ?', [amount, userId]);
     await conn.execute(
       `INSERT INTO transactions (user_id, transaction_code, type, amount, status, payment_method, description) 
-       VALUES (?, ?, 'WITHDRAW', ?, 'PENDING', 'BANK_TRANSFER', ?)`,
-      [userId, trxCode, amount, `Penarikan saldo ke: ${destination} - Menunggu konfirmasi Admin`]
+       VALUES (?, ?, 'WITHDRAW', ?, 'SUCCESS', 'BANK_TRANSFER', ?)`,
+      [userId, trxCode, amount, `Penarikan saldo ke: ${destination}`]
     );
 
     const newBalance = currentBalance - amount;
@@ -286,8 +321,8 @@ app.post('/api/wallet/withdraw', verifyToken, async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: `Penarikan sebesar Rp ${amount.toLocaleString('id-ID')} berhasil diajukan dan menunggu konfirmasi Admin.`,
-      data: { transaction_code: trxCode, amount, status: 'PENDING', new_balance: newBalance }
+      message: `Penarikan sebesar Rp ${amount.toLocaleString('id-ID')} berhasil diproses!`,
+      data: { transaction_code: trxCode, amount, new_balance: newBalance }
     });
   } catch (err) {
     await conn.rollback();
@@ -470,121 +505,6 @@ app.post('/api/admin/users/toggle-status', verifyAdmin, async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: 'Gagal mengubah status akun.' });
-  }
-});
-
-// Setujui transaksi PENDING (Deposit / Withdraw) oleh Admin
-app.post('/api/admin/transactions/approve', verifyAdmin, async (req, res) => {
-  const transactionId = parseInt(req.body.transactionId, 10);
-  if (!transactionId) {
-    return res.status(400).json({ success: false, message: 'ID transaksi tidak valid.' });
-  }
-
-  const conn = await pool.getConnection();
-  try {
-    await conn.beginTransaction();
-
-    const [rows] = await conn.execute(
-      `SELECT id, user_id, type, amount, status FROM transactions WHERE id = ? FOR UPDATE`,
-      [transactionId]
-    );
-    if (rows.length === 0) {
-      await conn.rollback();
-      return res.status(404).json({ success: false, message: 'Transaksi tidak ditemukan.' });
-    }
-
-    const trx = rows[0];
-    const amount = parseFloat(trx.amount);
-    if (trx.status !== 'PENDING') {
-      await conn.rollback();
-      return res.status(409).json({ success: false, message: `Transaksi sudah berstatus ${trx.status} dan tidak dapat diproses lagi.` });
-    }
-
-    // Deposit: saldo baru ditambahkan saat Admin menyetujui.
-    // Withdraw: saldo sudah ditahan saat pengajuan, sehingga approval hanya mengubah status.
-    if (trx.type === 'TOPUP') {
-      await conn.execute('UPDATE users SET balance = balance + ? WHERE id = ?', [amount, trx.user_id]);
-    } else if (trx.type !== 'WITHDRAW') {
-      await conn.rollback();
-      return res.status(400).json({ success: false, message: 'Tipe transaksi tidak didukung.' });
-    }
-
-    await conn.execute(
-      `UPDATE transactions SET status = 'SUCCESS', description = CONCAT(COALESCE(description, ''), ' - Disetujui Admin') WHERE id = ?`,
-      [transactionId]
-    );
-
-    const [userRows] = await conn.execute('SELECT balance FROM users WHERE id = ?', [trx.user_id]);
-    await conn.commit();
-
-    return res.json({
-      success: true,
-      message: 'Transaksi berhasil disetujui.',
-      data: { transaction_id: transactionId, status: 'SUCCESS', new_balance: parseFloat(userRows[0].balance) }
-    });
-  } catch (error) {
-    await conn.rollback();
-    console.error('Error approve transaction:', error);
-    return res.status(500).json({ success: false, message: 'Gagal menyetujui transaksi.' });
-  } finally {
-    conn.release();
-  }
-});
-
-// Tolak transaksi PENDING (Deposit / Withdraw) oleh Admin
-app.post('/api/admin/transactions/reject', verifyAdmin, async (req, res) => {
-  const transactionId = parseInt(req.body.transactionId, 10);
-  if (!transactionId) {
-    return res.status(400).json({ success: false, message: 'ID transaksi tidak valid.' });
-  }
-
-  const conn = await pool.getConnection();
-  try {
-    await conn.beginTransaction();
-
-    const [rows] = await conn.execute(
-      `SELECT id, user_id, type, amount, status FROM transactions WHERE id = ? FOR UPDATE`,
-      [transactionId]
-    );
-    if (rows.length === 0) {
-      await conn.rollback();
-      return res.status(404).json({ success: false, message: 'Transaksi tidak ditemukan.' });
-    }
-
-    const trx = rows[0];
-    const amount = parseFloat(trx.amount);
-    if (trx.status !== 'PENDING') {
-      await conn.rollback();
-      return res.status(409).json({ success: false, message: `Transaksi sudah berstatus ${trx.status} dan tidak dapat diproses lagi.` });
-    }
-
-    // Withdraw: dana yang sebelumnya ditahan dikembalikan jika ditolak.
-    if (trx.type === 'WITHDRAW') {
-      await conn.execute('UPDATE users SET balance = balance + ? WHERE id = ?', [amount, trx.user_id]);
-    } else if (trx.type !== 'TOPUP') {
-      await conn.rollback();
-      return res.status(400).json({ success: false, message: 'Tipe transaksi tidak didukung.' });
-    }
-
-    await conn.execute(
-      `UPDATE transactions SET status = 'FAILED', description = CONCAT(COALESCE(description, ''), ' - Ditolak Admin') WHERE id = ?`,
-      [transactionId]
-    );
-
-    const [userRows] = await conn.execute('SELECT balance FROM users WHERE id = ?', [trx.user_id]);
-    await conn.commit();
-
-    return res.json({
-      success: true,
-      message: 'Transaksi berhasil ditolak.',
-      data: { transaction_id: transactionId, status: 'FAILED', new_balance: parseFloat(userRows[0].balance) }
-    });
-  } catch (error) {
-    await conn.rollback();
-    console.error('Error reject transaction:', error);
-    return res.status(500).json({ success: false, message: 'Gagal menolak transaksi.' });
-  } finally {
-    conn.release();
   }
 });
 
@@ -1228,12 +1148,11 @@ const ADMIN_HTML_CONTENT = `<!DOCTYPE html>
               <th>Nominal</th>
               <th>Metode</th>
               <th>Status</th>
-              <th>Aksi</th>
             </tr>
           </thead>
           <tbody id="trx-list-tbody">
             <tr>
-              <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 20px;">Memuat transaksi...</td>
+              <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 20px;">Memuat transaksi...</td>
             </tr>
           </tbody>
         </table>
@@ -1594,7 +1513,7 @@ const ADMIN_HTML_CONTENT = `<!DOCTYPE html>
 
         if (data.success && data.data) {
           if (data.data.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 20px;">Belum ada transaksi di platform.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 20px;">Belum ada transaksi di platform.</td></tr>';
             return;
           }
 
@@ -1608,59 +1527,15 @@ const ADMIN_HTML_CONTENT = `<!DOCTYPE html>
                 <td><span class="\${isTopup ? 'type-topup' : 'type-withdraw'}">\${isTopup ? '+ TOPUP' : '- WD'}</span></td>
                 <td><strong>Rp \${(parseFloat(t.amount) || 0).toLocaleString('id-ID')}</strong></td>
                 <td style="font-size: 11px;">\${escapeHtml(t.payment_method)}</td>
-                <td>
-                  <span style="font-size: 10px; font-weight: 700; color: \${t.status === 'SUCCESS' ? 'var(--success)' : (t.status === 'FAILED' ? 'var(--danger)' : '#f59e0b')};">\${t.status}</span>
-                </td>
-                <td style="white-space: nowrap;">
-                  \${t.status === 'PENDING' ? \`
-                    <button class="btn btn-sm" style="background: var(--success); color: #07120a; margin-right: 4px; font-weight: 800;" onclick="processTransaction(\${t.id}, 'approve')">✅ PROSES</button>
-                    <button class="btn btn-sm" style="background: var(--danger); color: #fff; font-weight: 800;" onclick="processTransaction(\${t.id}, 'reject')">❌ REJECT</button>
-                  \` : \`<span style="font-size: 10px; color: var(--text-muted);">—</span>\`}
-                </td>
+                <td><span style="font-size: 10px; font-weight: 700; color: \${t.status === 'SUCCESS' ? 'var(--success)' : '#f59e0b'};">\${t.status}</span></td>
               </tr>
             \`;
           }).join('');
         } else {
-          tbody.innerHTML = \`<tr><td colspan="8" style="text-align: center; color: #f87171; padding: 20px;">\${data.message}</td></tr>\`;
+          tbody.innerHTML = \`<tr><td colspan="7" style="text-align: center; color: #f87171; padding: 20px;">\${data.message}</td></tr>\`;
         }
       } catch (err) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #f87171; padding: 20px;">Gagal memuat transaksi.</td></tr>';
-      }
-    }
-
-    // Proses transaksi PENDING: Approve / Reject
-    async function processTransaction(transactionId, action) {
-      const isApprove = action === 'approve';
-      const confirmText = isApprove
-        ? 'Yakin ingin MENYETUJUI transaksi ini? Saldo akan diproses sesuai tipe transaksi.'
-        : 'Yakin ingin MENOLAK transaksi ini? Transaksi akan menjadi FAILED dan dana Withdraw akan dikembalikan.';
-
-      if (!confirm(confirmText)) return;
-
-      const token = localStorage.getItem('pastibos_admin_token');
-      const endpoint = isApprove ? '/admin/transactions/approve' : '/admin/transactions/reject';
-
-      try {
-        const res = await fetch(API_BASE + endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + token
-          },
-          body: JSON.stringify({ transactionId })
-        });
-
-        const data = await res.json();
-
-        if (data.success) {
-          showToast(isApprove ? '✅ Transaksi berhasil disetujui.' : '❌ Transaksi berhasil ditolak.');
-          loadTransactions();
-        } else {
-          showToast('❌ ' + (data.message || 'Transaksi gagal diproses.'));
-        }
-      } catch (err) {
-        console.error('Process transaction error:', err);
-        showToast('❌ Gagal menghubungi server.');
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #f87171; padding: 20px;">Gagal memuat transaksi.</td></tr>';
       }
     }
 
@@ -1713,6 +1588,16 @@ const ADMIN_HTML_CONTENT = `<!DOCTYPE html>
 `;
 
 app.get('/api/admin-panel', (req, res) => {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(ADMIN_HTML_CONTENT);
+});
+
+
+app.get('/server.js', (req, res) => {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(ADMIN_HTML_CONTENT);
+});
+app.get('/admin.html', (req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(ADMIN_HTML_CONTENT);
 });
