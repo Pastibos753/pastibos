@@ -1,5 +1,5 @@
 
-const API_BASE = '';
+const API_BASE = 'https://pastibos.vercel.app';
 let token = localStorage.getItem('pastibos_admin_token') || '';
 let adminUser = localStorage.getItem('pastibos_admin_name') || '';
 let members = [], transactions = [], trxFilter = 'ALL';
