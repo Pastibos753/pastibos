@@ -866,6 +866,8 @@
   💾 SIMPAN PERUBAHAN
 </button>
 
+<div id="editMsg" class="msg"></div>
+
 <div style="height: 18px;"></div>
 
 <label for="resetPassword">Password Baru</label>
@@ -1304,24 +1306,34 @@
 
     /* MODAL: EDIT MEMBER */
     function openEditModal(userId) {
-      const m = allMembers.find(u => u.id === userId);
-      if (!m) return;
+      const m = allMembers.find(u => String(u.id) === String(userId));
+
+      if (!m) {
+        console.error('Member tidak ditemukan:', userId);
+        showToast('❌ Data member tidak ditemukan.');
+        return;
+      }
 
       document.getElementById('editId').value = m.id;
-      document.getElementById('editUsername').value = m.username;
+      document.getElementById('editUsername').value = m.username || '';
       document.getElementById('editPhone').value = m.phone || '';
       document.getElementById('editBank').value = m.bank_name || '';
       document.getElementById('editAccountName').value = m.account_name || '';
       document.getElementById('editAccountNumber').value = m.account_number || '';
       document.getElementById('editStatus').value = m.status || 'active';
-      document.getElementById('editMsg').textContent = '';
+
+      const editMsg = document.getElementById('editMsg');
+      if (editMsg) editMsg.textContent = '';
+
       document.getElementById('resetPassword').value = '';
       document.getElementById('resetPasswordConfirm').value = '';
-      document.getElementById('resetPasswordMsg').textContent = '';
-      
+
+      const resetMsg = document.getElementById('resetPasswordMsg');
+      if (resetMsg) resetMsg.textContent = '';
+
       openModal('editModal');
     }
-    
+
     async function resetMemberPassword() {
   const token = localStorage.getItem('pastibos_admin_token');
   const id = document.getElementById('editId').value;
@@ -1564,4 +1576,4 @@
     }
   </script>
 </body>
-</html>
+  </html>
