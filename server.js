@@ -718,6 +718,70 @@ app.put('/api/admin/users/:id', verifyAdmin, async (req, res) => {
 });
 
 // =============================================
+// ADMIN - RESET PASSWORD MEMBER
+// =============================================
+app.put('/api/admin/users/:id/password', verifyAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  const newPassword = String(req.body?.password || '');
+
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'ID member tidak valid.'
+    });
+  }
+
+  if (newPassword.length < 6) {
+    return res.status(400).json({
+      success: false,
+      message: 'Password minimal 6 karakter.'
+    });
+  }
+
+  try {
+    // Pastikan target benar-benar member, bukan Admin
+    const [users] = await pool.execute(
+      `SELECT id, username, role
+       FROM users
+       WHERE id = ?
+       LIMIT 1`,
+      [id]
+    );
+
+    if (users.length === 0 || users[0].role === 'admin') {
+      return res.status(404).json({
+        success: false,
+        message: 'Member tidak ditemukan.'
+      });
+    }
+
+    // Hash password baru
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+
+    await pool.execute(
+      `UPDATE users
+       SET password_hash = ?
+       WHERE id = ?
+         AND role != 'admin'`,
+      [passwordHash, id]
+    );
+
+    return res.json({
+      success: true,
+      message: `Password member ${users[0].username} berhasil direset.`
+    });
+
+  } catch (error) {
+    console.error('Reset Password Member Error:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal mereset password member.'
+    });
+  }
+});
+
+// =============================================
 // ADMIN - TOGGLE STATUS
 // =============================================
 app.post('/api/admin/users/toggle-status', verifyAdmin, async (req, res) => {
