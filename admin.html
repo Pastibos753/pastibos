@@ -1170,10 +1170,8 @@
             <div>
               <div class="card-user">⚙️ ${escapeHtml(m.username)}</div>
               <div class="card-phone">${escapeHtml(m.bank_name || '-')} • ${escapeHtml(m.account_number || '-')}</div>
-             <button
-  type="button"
-  class="btn-sm btn primary"
-  onclick="openEditModal(${m.id})">
+            </div>
+            <button class="btn-sm btn primary" onclick="openEditModal(${m.id})">
   Ubah Data
 </button>
           </div>
@@ -1464,7 +1462,7 @@
     btn.textContent = '💾 SIMPAN PERUBAHAN';
 
   }
-    }
+}
 
     /* MODAL: SALDO (+ / -) */
     function openSaldoModal(userId, username, action) {
