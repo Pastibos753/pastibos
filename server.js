@@ -722,7 +722,10 @@ app.post('/api/admin/transactions/approve', verifyAdmin, async (req, res) => {
   const conn = await pool.getConnection();
 
   try {
-    const { transaction_id } = req.body;
+    const transaction_id =
+  req.body?.transaction_id ??
+  req.body?.transactionId ??
+  req.body?.id;
 
     if (!transaction_id) {
       return res.status(400).json({
@@ -827,7 +830,10 @@ app.post('/api/admin/transactions/reject', verifyAdmin, async (req, res) => {
   const conn = await pool.getConnection();
 
   try {
-    const { transaction_id } = req.body;
+    const transaction_id =
+  req.body?.transaction_id ??
+  req.body?.transactionId ??
+  req.body?.id;
 
     if (!transaction_id) {
       return res.status(400).json({
