@@ -590,7 +590,7 @@ app.post('/api/admin/users/adjust-balance', verifyAdmin, async (req, res) => {
   const action = String(req.body?.action || '');
   const note = String(req.body?.note || '').trim();
 
-  if (!Number.isInteger(userId) || userId <= 0 || !Number.isFinite(amount) || amount <= 0 || !['add', 'subtract'].includes(action)) {
+  if (!Number.isInteger(userId) || userId <= 0 || !Number.isFinite(amount) || amount <= 0 || !['add', 'bonus', 'subtract'].includes(action)) {
     return res.status(400).json({ success: false, message: 'Data perubahan saldo tidak valid.' });
   }
 
@@ -621,9 +621,29 @@ app.post('/api/admin/users/adjust-balance', verifyAdmin, async (req, res) => {
 
     await conn.execute('UPDATE users SET balance = ? WHERE id = ?', [newBalance, userId]);
 
-    const type = action === 'add' ? 'TOPUP' : 'WITHDRAW';
-    const trxCode = generateTrxCode(action === 'add' ? 'ADMDEP' : 'ADMWD');
-    const description = note || (action === 'add' ? 'Penambahan saldo oleh Admin' : 'Pengurangan saldo oleh Admin');
+    const type =
+  action === 'bonus'
+    ? 'BONUS'
+    : action === 'add'
+      ? 'TOPUP'
+      : 'WITHDRAW';
+
+const trxCode =
+  action === 'bonus'
+    ? generateTrxCode('ADMBON')
+    : action === 'add'
+      ? generateTrxCode('ADMDEP')
+      : generateTrxCode('ADMWD');
+    
+    const description =
+  note ||
+  (
+    action === 'bonus'
+      ? 'Bonus oleh Admin'
+      : action === 'add'
+        ? 'Penambahan saldo oleh Admin'
+        : 'Pengurangan saldo oleh Admin'
+  );
 
     await conn.execute(
       `INSERT INTO transactions
