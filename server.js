@@ -649,6 +649,75 @@ app.post('/api/admin/users/adjust-balance', verifyAdmin, async (req, res) => {
 });
 
 // =============================================
+// ADMIN - UPDATE DATA MEMBER
+// =============================================
+app.put('/api/admin/users/:id', verifyAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'ID member tidak valid.'
+    });
+  }
+
+  const phone = String(req.body?.phone ?? '').trim();
+  const bank_name = String(req.body?.bank_name ?? '').trim();
+  const account_name = String(req.body?.account_name ?? '').trim();
+  const account_number = String(req.body?.account_number ?? '').trim();
+  const status = String(req.body?.status ?? '').trim().toLowerCase();
+
+  if (!['active', 'suspended'].includes(status)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Status akun tidak valid.'
+    });
+  }
+
+  try {
+    const [result] = await pool.execute(
+      `UPDATE users
+       SET
+         phone = ?,
+         bank_name = ?,
+         account_name = ?,
+         account_number = ?,
+         status = ?
+       WHERE id = ?
+         AND role != 'admin'`,
+      [
+        phone,
+        bank_name,
+        account_name,
+        account_number,
+        status,
+        id
+      ]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Member tidak ditemukan.'
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Data member berhasil diperbarui.'
+    });
+
+  } catch (error) {
+    console.error('Update Member Error:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal memperbarui data member.'
+    });
+  }
+});
+
+// =============================================
 // ADMIN - TOGGLE STATUS
 // =============================================
 app.post('/api/admin/users/toggle-status', verifyAdmin, async (req, res) => {
