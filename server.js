@@ -169,7 +169,7 @@ app.post('/api/auth/register', async (req, res) => {
       `INSERT INTO users
        (username, password_hash, phone, bank_name, account_name, account_number,
         referral_code, balance, status, role)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'active', 'member')`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'active', 'user')`,
       [
         cleanUsername,
         passwordHash,
