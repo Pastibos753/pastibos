@@ -1292,37 +1292,62 @@
       openModal('editModal');
     }
 
-    async function saveMember() {
-      const token = localStorage.getItem('pastibos_admin_token');
-      const id = document.getElementById('editId').value;
-      const phone = document.getElementById('editPhone').value.trim();
-      const bank = document.getElementById('editBank').value.trim();
-      const accName = document.getElementById('editAccountName').value.trim();
-      const accNum = document.getElementById('editAccountNumber').value.trim();
-      const status = document.getElementById('editStatus').value;
-      const btn = document.getElementById('btnSaveMember');
-      const msg = document.getElementById('editMsg');
+async function saveMember() {
+  const token = localStorage.getItem('pastibos_admin_token');
 
-      btn.disabled = true;
-      btn.textContent = 'Menyimpan...';
+  const id = document.getElementById('editId').value;
+  const phone = document.getElementById('editPhone').value.trim();
+  const bank = document.getElementById('editBank').value.trim();
+  const accName = document.getElementById('editAccountName').value.trim();
+  const accNum = document.getElementById('editAccountNumber').value.trim();
+  const status = document.getElementById('editStatus').value;
 
-      try {
-        // Toggle status jika berubah
-        await fetch(`${API_BASE}/admin/users/toggle-status`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ userId: id, status: status })
-        });
+  const btn = document.getElementById('btnSaveMember');
+  const msg = document.getElementById('editMsg');
 
-        showToast('✅ Data status member berhasil diperbarui!');
-        closeModal('editModal');
-        loadAllData();
-      } catch (err) {
-        msg.textContent = 'Gagal menyimpan perubahan!';
-      } finally {
-        btn.disabled = false;
-        btn.textContent = '💾 SIMPAN PERUBAHAN';
-      }
+  btn.disabled = true;
+  btn.textContent = 'Menyimpan...';
+  msg.textContent = '';
+
+  try {
+    const res = await fetch(`${API_BASE}/admin/users/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        phone: phone,
+        bank_name: bank,
+        account_name: accName,
+        account_number: accNum,
+        status: status
+      })
+    });
+
+    const result = await res.json();
+
+    if (!res.ok || !result.success) {
+      throw new Error(result.message || 'Gagal memperbarui data member.');
+    }
+
+    showToast('✅ Data member berhasil diperbarui!');
+
+    closeModal('editModal');
+
+    // Muat ulang data dari database
+    await loadAllData();
+
+  } catch (err) {
+    console.error('Save Member Error:', err);
+
+    msg.textContent = err.message || 'Gagal menyimpan perubahan!';
+
+    showToast('❌ Gagal menyimpan perubahan.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '💾 SIMPAN PERUBAHAN';
+  }
     }
 
     /* MODAL: SALDO (+ / -) */
