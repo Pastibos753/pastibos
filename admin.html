@@ -671,7 +671,7 @@
 
         <button class="nav-item active" data-page="members"
                 type="button" onclick="showPage('members')">
-          <span class="nav-icon">👥</span>
+          <span class="nav-icon">🤴</span>
           <span>Daftar Member</span>
         </button>
 
@@ -730,7 +730,7 @@
         <div class="page-title">
           <div>
             <h1>Daftar Member</h1>
-            <p>Semua member terdaftar. Akun terbaru berada paling atas.</p>
+            <p>Semua member baru, Berada paling atas!</p>
           </div>
 
           <span id="memberCount" class="count">0 Member</span>
@@ -854,19 +854,45 @@
       <label for="editAccountNumber">Nomor Rekening</label>
       <input id="editAccountNumber">
 
-      <label for="editStatus">Status Akun</label>
-      <select id="editStatus">
-        <option value="active">ACTIVE</option>
-        <option value="suspended">SUSPENDED</option>
-      </select>
+       <label for="editStatus">Status Akun</label>
+<select id="editStatus">
+  <option value="active">ACTIVE</option>
+  <option value="suspended">SUSPENDED</option>
+</select>
 
-      <button class="btn primary" type="button"
-              id="btnSaveMember"
-              onclick="saveMember()">
-        💾 SIMPAN PERUBAHAN
-      </button>
+<button class="btn primary" type="button"
+        id="btnSaveMember"
+        onclick="saveMember()">
+  💾 SIMPAN PERUBAHAN
+</button>
 
-      <div id="editMsg" class="msg"></div>
+<div style="height: 18px;"></div>
+
+<label for="resetPassword">Password Baru</label>
+<input
+  id="resetPassword"
+  type="password"
+  placeholder="Masukkan password baru"
+  autocomplete="new-password"
+>
+
+<label for="resetPasswordConfirm">Konfirmasi Password</label>
+<input
+  id="resetPasswordConfirm"
+  type="password"
+  placeholder="Ulangi password baru"
+  autocomplete="new-password"
+>
+
+<button
+  class="btn danger"
+  type="button"
+  id="btnResetPassword"
+  onclick="resetMemberPassword()">
+  🔑 RESET PASSWORD
+</button>
+
+<div id="resetPasswordMsg" class="msg"></div>
 
     </div>
   </div>
@@ -886,10 +912,11 @@
       <input type="hidden" id="saldoUserId">
 
       <label>Tindakan</label>
-      <select id="saldoAction">
-        <option value="add">➕ TAMBAH SALDO (Deposit)</option>
-        <option value="subtract">➖ KURANGI SALDO (Withdraw)</option>
-      </select>
+<select id="saldoAction">
+  <option value="add">➕ TAMBAH SALDO (Deposit)</option>
+  <option value="bonus">🎁 TAMBAH SALDO (Bonus)</option>
+  <option value="subtract">➖ KURANGI SALDO (Withdraw)</option>
+</select>
 
       <label>Nominal Cepat</label>
       <div class="chips-grid">
@@ -1288,66 +1315,114 @@
       document.getElementById('editAccountNumber').value = m.account_number || '';
       document.getElementById('editStatus').value = m.status || 'active';
       document.getElementById('editMsg').textContent = '';
-
+      document.getElementById('resetPassword').value = '';
+      document.getElementById('resetPasswordConfirm').value = '';
+      document.getElementById('resetPasswordMsg').textContent = '';
+      
       openModal('editModal');
     }
-
-async function saveMember() {
+    
+    async function resetMemberPassword() {
   const token = localStorage.getItem('pastibos_admin_token');
-
   const id = document.getElementById('editId').value;
-  const phone = document.getElementById('editPhone').value.trim();
-  const bank = document.getElementById('editBank').value.trim();
-  const accName = document.getElementById('editAccountName').value.trim();
-  const accNum = document.getElementById('editAccountNumber').value.trim();
-  const status = document.getElementById('editStatus').value;
+  const password = document.getElementById('resetPassword').value;
+  const confirmPassword = document.getElementById('resetPasswordConfirm').value;
 
-  const btn = document.getElementById('btnSaveMember');
-  const msg = document.getElementById('editMsg');
+  const btn = document.getElementById('btnResetPassword');
+  const msg = document.getElementById('resetPasswordMsg');
 
-  btn.disabled = true;
-  btn.textContent = 'Menyimpan...';
   msg.textContent = '';
 
+  if (!password || !confirmPassword) {
+    msg.textContent = 'Password baru dan konfirmasi wajib diisi.';
+    return;
+  }
+
+  if (password.length < 6) {
+    msg.textContent = 'Password minimal 6 karakter.';
+    return;
+  }
+
+  if (password !== confirmPassword) {
+    msg.textContent = 'Konfirmasi password tidak sama.';
+    return;
+  }
+
+  if (!confirm('Yakin ingin mereset password member ini?')) {
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Mereset Password...';
+
   try {
-    const res = await fetch(`${API_BASE}/admin/users/${id}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({
-        phone: phone,
-        bank_name: bank,
-        account_name: accName,
-        account_number: accNum,
-        status: status
-      })
-    });
+    const res = await fetch(
+      `${API_BASE}/admin/users/${id}/password`,
+      {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          password: password
+        })
+      }
+    );
 
-    const result = await res.json();
+    const data = await res.json();
 
-    if (!res.ok || !result.success) {
-      throw new Error(result.message || 'Gagal memperbarui data member.');
+    if (res.ok && data.success) {
+      showToast(`✅ ${data.message}`);
+
+      document.getElementById('resetPassword').value = '';
+      document.getElementById('resetPasswordConfirm').value = '';
+      msg.textContent = '';
+
+    } else {
+      msg.textContent = data.message || 'Gagal mereset password.';
     }
 
-    showToast('✅ Data member berhasil diperbarui!');
-
-    closeModal('editModal');
-
-    // Muat ulang data dari database
-    await loadAllData();
-
   } catch (err) {
-    console.error('Save Member Error:', err);
-
-    msg.textContent = err.message || 'Gagal menyimpan perubahan!';
-
-    showToast('❌ Gagal menyimpan perubahan.');
+    console.error('Reset Password Error:', err);
+    msg.textContent = 'Gagal terhubung ke server.';
   } finally {
     btn.disabled = false;
-    btn.textContent = '💾 SIMPAN PERUBAHAN';
+    btn.textContent = '🔑 RESET PASSWORD';
   }
+}
+
+    async function saveMember() {
+      const token = localStorage.getItem('pastibos_admin_token');
+      const id = document.getElementById('editId').value;
+      const phone = document.getElementById('editPhone').value.trim();
+      const bank = document.getElementById('editBank').value.trim();
+      const accName = document.getElementById('editAccountName').value.trim();
+      const accNum = document.getElementById('editAccountNumber').value.trim();
+      const status = document.getElementById('editStatus').value;
+      const btn = document.getElementById('btnSaveMember');
+      const msg = document.getElementById('editMsg');
+
+      btn.disabled = true;
+      btn.textContent = 'Menyimpan...';
+
+      try {
+        // Toggle status jika berubah
+        await fetch(`${API_BASE}/admin/users/toggle-status`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ userId: id, status: status })
+        });
+
+        showToast('✅ Data status member berhasil diperbarui!');
+        closeModal('editModal');
+        loadAllData();
+      } catch (err) {
+        msg.textContent = 'Gagal menyimpan perubahan!';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '💾 SIMPAN PERUBAHAN';
+      }
     }
 
     /* MODAL: SALDO (+ / -) */
@@ -1387,12 +1462,20 @@ async function saveMember() {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`
           },
-          body: JSON.stringify({
-            userId: userId,
-            amount: amount,
-            action: action,
-            note: note || (action === 'add' ? 'Tambah saldo oleh Admin' : 'Potong saldo oleh Admin')
-          })
+          
+           body: JSON.stringify({
+              userId: userId,
+              amount: amount,
+              action: action,
+              note: note || (
+               action === 'add'
+              ? 'Deposit oleh Admin'
+              : action === 'bonus'
+                ? 'Bonus oleh Admin'
+                : 'Withdraw oleh Admin'
+          )
+         })
+          
         });
 
         const data = await res.json();
