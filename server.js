@@ -8,9 +8,32 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ======================================================
+/*
+==================================================
+ PASTIBOS BACKEND
+ Sesuai struktur TiDB Cloud yang digunakan:
+ users.role:
+   - admin
+   - user
+
+ transactions.type:
+   - TOPUP
+   - WITHDRAW
+   - GAME_BET
+   - GAME_WIN
+   - MANUAL_TRANSFER
+
+ transactions.status:
+   - PENDING
+   - SUCCESS
+   - FAILED
+==================================================
+*/
+
+
+// ==================================================
 // MIDDLEWARE
-// ======================================================
+// ==================================================
 
 app.use(cors({
   origin: '*',
@@ -21,9 +44,10 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ======================================================
-// DATABASE MYSQL / TiDB CLOUD
-// ======================================================
+
+// ==================================================
+// DATABASE TiDB CLOUD
+// ==================================================
 
 const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
@@ -46,272 +70,539 @@ const pool = mysql.createPool({
       : undefined
 });
 
-// ======================================================
-// JWT SECRET
-// ======================================================
+
+// ==================================================
+// JWT
+// ==================================================
 
 const JWT_SECRET =
   process.env.JWT_SECRET ||
   'pastibos_secret_key_123456789';
 
-// ======================================================
-// HELPER
-// ======================================================
 
-function generateTrxCode(prefix) {
+// ==================================================
+// HELPER
+// ==================================================
+
+function generateTrxCode(prefix = 'TRX') {
   return `${prefix}-${Date.now()}-${Math.floor(
     100 + Math.random() * 900
   )}`;
 }
 
-function publicUser(row) {
+
+function publicUser(user) {
+  if (!user) return null;
+
   return {
-    id: row.id,
-    username: row.username,
-    phone: row.phone || '',
-    bank_name: row.bank_name || '',
-    account_name: row.account_name || '',
-    account_number: row.account_number || '',
-    referral_code: row.referral_code || null,
-    balance: Number(row.balance || 0),
-    status: row.status || 'active',
-    role: row.role || 'member',
-    created_at: row.created_at || null
+    id: user.id,
+    username: user.username,
+    phone: user.phone || '',
+    bank_name: user.bank_name || '',
+    account_name: user.account_name || '',
+    account_number: user.account_number || '',
+    referral_code: user.referral_code || '',
+    balance: parseFloat(user.balance || 0),
+    status: user.status || 'active',
+    role: user.role || 'user',
+    created_at: user.created_at || null
   };
 }
 
-// ======================================================
-// VERIFY MEMBER TOKEN
-// ======================================================
+
+// ==================================================
+// TOKEN USER
+// ==================================================
 
 function verifyToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
+
+  const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
+
     return res.status(401).json({
       success: false,
       message: 'Akses ditolak. Token tidak ditemukan.'
     });
+
   }
 
   const token = authHeader.split(' ')[1];
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
+
+    const decoded = jwt.verify(
+      token,
+      JWT_SECRET
+    );
 
     req.user = decoded;
 
     next();
+
   } catch (error) {
+
     return res.status(403).json({
       success: false,
       message: 'Sesi tidak valid atau sudah kadaluarsa.'
     });
+
   }
 }
 
-// ======================================================
-// VERIFY ADMIN
-// ======================================================
+
+// ==================================================
+// TOKEN ADMIN
+// ==================================================
 
 function verifyAdmin(req, res, next) {
-  const authHeader = req.headers['authorization'];
+
+  const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
+
     return res.status(401).json({
       success: false,
-      message:
-        'Akses admin ditolak. Silakan login sebagai admin.'
+      message: 'Akses admin ditolak. Silakan login sebagai admin.'
     });
+
   }
 
   const token = authHeader.split(' ')[1];
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
+
+    const decoded = jwt.verify(
+      token,
+      JWT_SECRET
+    );
 
     if (decoded.role !== 'admin') {
+
       return res.status(403).json({
         success: false,
-        message:
-          'Hanya akun Admin yang diizinkan mengakses panel ini!'
+        message: 'Hanya akun Admin yang diizinkan mengakses panel ini!'
       });
+
     }
 
     req.admin = decoded;
 
     next();
+
   } catch (error) {
+
     return res.status(403).json({
       success: false,
-      message:
-        'Sesi admin kadaluarsa. Silakan login ulang.'
+      message: 'Sesi admin kadaluarsa. Silakan login ulang.'
     });
+
   }
 }
 
-// ======================================================
+
+// ==================================================
 // HEALTH CHECK
-// ======================================================
+// ==================================================
 
 app.get('/', (req, res) => {
+
   res.json({
     status: 'ONLINE',
-    message:
-      '🚀 Backend Platform Game PASTIBOS sudah aktif dan siap melayani data.',
+    message: 'Backend PASTIBOS aktif.',
     database: 'TiDB Cloud',
     time: new Date()
   });
+
 });
 
+
 app.get('/api/health', (req, res) => {
+
   res.json({
     status: 'OK',
     message: 'Backend PASTIBOS aktif di Vercel!',
     timestamp: new Date()
   });
+
 });
 
-// ======================================================
+
+// ==================================================
 // MEMBER REGISTER
-// Kompatibel dengan Daftar2.html
-// ======================================================
+// ==================================================
 
 app.post('/api/auth/register', async (req, res) => {
+
+  const {
+    username,
+    password,
+    phone,
+    bank,
+    namaRek,
+    noRek,
+    referral
+  } = req.body || {};
+
   try {
-    const {
-      username,
-      password,
-      phone,
-      bank,
-      namaRek,
-      noRek,
-      referral
-    } = req.body || {};
 
-    const cleanUsername =
-      String(username || '').trim();
+    if (!username || !password) {
 
-    const cleanPhone =
-      String(phone || '').trim();
-
-    const cleanBank =
-      String(bank || '').trim();
-
-    const cleanAccountName =
-      String(namaRek || '').trim();
-
-    const cleanAccountNumber =
-      String(noRek || '').trim();
-
-    const cleanReferral =
-      String(referral || '').trim();
-
-    if (
-      !cleanUsername ||
-      !password ||
-      !cleanPhone ||
-      !cleanBank ||
-      !cleanAccountName ||
-      !cleanAccountNumber
-    ) {
       return res.status(400).json({
         success: false,
-        message:
-          'Semua data wajib diisi kecuali kode referral.'
+        message: 'Username dan password wajib diisi.'
       });
+
     }
 
-    if (
-      cleanUsername.length < 3 ||
-      cleanUsername.length > 40
-    ) {
+    if (username.length < 3) {
+
       return res.status(400).json({
         success: false,
-        message:
-          'Username harus terdiri dari 3 sampai 40 karakter.'
+        message: 'Username minimal 3 karakter.'
       });
+
     }
 
-    if (
-      String(password).length < 6 ||
-      String(password).length > 128
-    ) {
+    if (password.length < 6) {
+
       return res.status(400).json({
         success: false,
-        message:
-          'Password harus terdiri dari minimal 6 karakter.'
+        message: 'Password minimal 6 karakter.'
       });
+
     }
 
-    const [existing] =
-      await pool.execute(
-        `
-        SELECT id
-        FROM users
-        WHERE username = ?
-        LIMIT 1
-        `,
-        [cleanUsername]
-      );
+
+    // ----------------------------------------------
+    // CEK USERNAME
+    // ----------------------------------------------
+
+    const [existing] = await pool.execute(
+      `
+      SELECT id
+      FROM users
+      WHERE username = ?
+      LIMIT 1
+      `,
+      [username]
+    );
 
     if (existing.length > 0) {
+
       return res.status(409).json({
         success: false,
-        message:
-          'Username sudah terdaftar. Silakan gunakan username lain.'
+        message: 'Username sudah terdaftar.'
       });
+
     }
 
-    const passwordHash =
-      await bcrypt.hash(
-        String(password),
-        12
+
+    // ----------------------------------------------
+    // HASH PASSWORD
+    // ----------------------------------------------
+
+    const passwordHash = await bcrypt.hash(
+      password,
+      12
+    );
+
+
+    // ----------------------------------------------
+    // INSERT MEMBER
+    //
+    // PENTING:
+    // role = 'user'
+    // bukan 'member'
+    // ----------------------------------------------
+
+    const [result] = await pool.execute(
+      `
+      INSERT INTO users
+      (
+        username,
+        password_hash,
+        phone,
+        bank_name,
+        account_name,
+        account_number,
+        referral_code,
+        balance,
+        status,
+        role
+      )
+      VALUES
+      (
+        ?,
+        ?,
+        ?,
+        ?,
+        ?,
+        ?,
+        ?,
+        0,
+        'active',
+        'user'
+      )
+      `,
+      [
+        username,
+        passwordHash,
+        phone || '',
+        bank || '',
+        namaRek || '',
+        noRek || '',
+        referral || ''
+      ]
+    );
+
+
+    // ----------------------------------------------
+    // AMBIL USER BARU
+    // ----------------------------------------------
+
+    const [rows] = await pool.execute(
+      `
+      SELECT
+        id,
+        username,
+        phone,
+        bank_name,
+        account_name,
+        account_number,
+        referral_code,
+        balance,
+        status,
+        role,
+        created_at
+      FROM users
+      WHERE id = ?
+      LIMIT 1
+      `,
+      [result.insertId]
+    );
+
+
+    const user = rows[0];
+
+
+    // ----------------------------------------------
+    // TOKEN
+    // ----------------------------------------------
+
+    const token = jwt.sign(
+      {
+        id: user.id,
+        username: user.username,
+        role: 'user'
+      },
+      JWT_SECRET,
+      {
+        expiresIn: '7d'
+      }
+    );
+
+
+    console.log(
+      'Member Register Success:',
+      username
+    );
+
+
+    return res.status(201).json({
+
+      success: true,
+
+      message:
+        'Pendaftaran berhasil! Akun Anda sudah dibuat.',
+
+      data: {
+        token,
+        user: publicUser(user)
+      }
+
+    });
+
+
+  } catch (error) {
+
+    console.error(
+      'Member Register Error:',
+      error
+    );
+
+    return res.status(500).json({
+
+      success: false,
+
+      message:
+        'Pendaftaran gagal karena terjadi kesalahan server/database.'
+
+    });
+
+  }
+
+});
+
+
+// ==================================================
+// MEMBER LOGIN
+// ==================================================
+
+app.post('/api/auth/login', async (req, res) => {
+
+  const {
+    username,
+    password
+  } = req.body || {};
+
+  try {
+
+    if (!username || !password) {
+
+      return res.status(400).json({
+        success: false,
+        message: 'Username dan password wajib diisi.'
+      });
+
+    }
+
+
+    const [rows] = await pool.execute(
+      `
+      SELECT
+        id,
+        username,
+        password_hash,
+        phone,
+        bank_name,
+        account_name,
+        account_number,
+        referral_code,
+        balance,
+        status,
+        role,
+        created_at
+      FROM users
+      WHERE username = ?
+      LIMIT 1
+      `,
+      [username]
+    );
+
+
+    if (rows.length === 0) {
+
+      return res.status(401).json({
+        success: false,
+        message: 'Username atau password salah.'
+      });
+
+    }
+
+
+    const user = rows[0];
+
+
+    const passwordMatch =
+      await bcrypt.compare(
+        password,
+        user.password_hash
       );
 
-    const [result] =
-      await pool.execute(
-        `
-        INSERT INTO users
-        (
-          username,
-          password_hash,
-          phone,
-          bank_name,
-          account_name,
-          account_number,
-          referral_code,
-          balance,
-          status,
-          role
-        )
-        VALUES
-        (
-          ?,
-          ?,
-          ?,
-          ?,
-          ?,
-          ?,
-          ?,
-          0,
-          'active',
-          'member'
-        )
-        `,
-        [
-          cleanUsername,
-          passwordHash,
-          cleanPhone,
-          cleanBank,
-          cleanAccountName,
-          cleanAccountNumber,
-          cleanReferral || null
-        ]
-      );
 
-    const [createdRows] =
-      await pool.execute(
+    if (!passwordMatch) {
+
+      return res.status(401).json({
+        success: false,
+        message: 'Username atau password salah.'
+      });
+
+    }
+
+
+    if (user.role === 'admin') {
+
+      return res.status(403).json({
+        success: false,
+        message: 'Gunakan halaman Login Admin untuk akun Admin.'
+      });
+
+    }
+
+
+    if (
+      user.status &&
+      user.status.toLowerCase() !== 'active'
+    ) {
+
+      return res.status(403).json({
+        success: false,
+        message: 'Akun Anda sedang ditangguhkan.'
+      });
+
+    }
+
+
+    const token = jwt.sign(
+      {
+        id: user.id,
+        username: user.username,
+        role: 'user'
+      },
+      JWT_SECRET,
+      {
+        expiresIn: '7d'
+      }
+    );
+
+
+    return res.json({
+
+      success: true,
+
+      message: 'Login berhasil.',
+
+      data: {
+        token,
+        user: publicUser(user)
+      }
+
+    });
+
+
+  } catch (error) {
+
+    console.error(
+      'Member Login Error:',
+      error
+    );
+
+    return res.status(500).json({
+
+      success: false,
+
+      message: 'Server error saat login member.'
+
+    });
+
+  }
+
+});
+
+
+// ==================================================
+// MEMBER - DATA AKUN
+// ==================================================
+
+app.get(
+  '/api/auth/me',
+  verifyToken,
+  async (req, res) => {
+
+    try {
+
+      const [rows] = await pool.execute(
         `
         SELECT
           id,
@@ -329,484 +620,736 @@ app.post('/api/auth/register', async (req, res) => {
         WHERE id = ?
         LIMIT 1
         `,
-        [result.insertId]
+        [req.user.id]
       );
 
-    if (!createdRows.length) {
-      return res.status(500).json({
-        success: false,
-        message:
-          'Member berhasil dibuat tetapi data tidak dapat dibaca kembali.'
-      });
-    }
 
-    const user =
-      publicUser(createdRows[0]);
+      if (rows.length === 0) {
 
-    const token =
-      jwt.sign(
-        {
-          id: user.id,
-          username: user.username,
-          role: 'member'
-        },
-        JWT_SECRET,
-        {
-          expiresIn: '7d'
-        }
-      );
-
-    return res.status(201).json({
-      success: true,
-      message:
-        'Pendaftaran berhasil! Selamat datang di PASTIBOS.',
-      data: {
-        token,
-        user
-      }
-    });
-
-  } catch (error) {
-
-    console.error(
-      'Member Register Error:',
-      error
-    );
-
-    if (
-      error &&
-      error.code === 'ER_DUP_ENTRY'
-    ) {
-      return res.status(409).json({
-        success: false,
-        message:
-          'Username sudah terdaftar. Silakan gunakan username lain.'
-      });
-    }
-
-    return res.status(500).json({
-      success: false,
-      message:
-        'Pendaftaran gagal karena terjadi kesalahan server/database.'
-    });
-  }
-});
-
-// ======================================================
-// MEMBER LOGIN
-// Kompatibel dengan index.html
-// ======================================================
-
-app.post('/api/auth/login', async (req, res) => {
-  try {
-    const username =
-      String(
-        (req.body || {}).username || ''
-      ).trim();
-
-    const password =
-      (req.body || {}).password;
-
-    if (!username || !password) {
-      return res.status(400).json({
-        success: false,
-        message:
-          'Username dan password wajib diisi.'
-      });
-    }
-
-    const [rows] =
-      await pool.execute(
-        `
-        SELECT
-          id,
-          username,
-          password_hash,
-          phone,
-          bank_name,
-          account_name,
-          account_number,
-          referral_code,
-          balance,
-          status,
-          role,
-          created_at
-        FROM users
-        WHERE username = ?
-        LIMIT 1
-        `,
-        [username]
-      );
-
-    if (!rows.length) {
-      return res.status(401).json({
-        success: false,
-        message:
-          'Username atau password salah.'
-      });
-    }
-
-    const row = rows[0];
-
-    const passwordMatch =
-      await bcrypt.compare(
-        String(password),
-        row.password_hash || ''
-      );
-
-    if (!passwordMatch) {
-      return res.status(401).json({
-        success: false,
-        message:
-          'Username atau password salah.'
-      });
-    }
-
-    if (
-      String(row.role || 'member')
-        .toLowerCase() === 'admin'
-    ) {
-      return res.status(403).json({
-        success: false,
-        message:
-          'Gunakan halaman login Admin untuk akun Admin.'
-      });
-    }
-
-    if (
-      String(row.status || 'active')
-        .toLowerCase() !== 'active'
-    ) {
-      return res.status(403).json({
-        success: false,
-        message:
-          'Akun sedang dinonaktifkan. Hubungi Admin.'
-      });
-    }
-
-    const user =
-      publicUser(row);
-
-    const token =
-      jwt.sign(
-        {
-          id: user.id,
-          username: user.username,
-          role: 'member'
-        },
-        JWT_SECRET,
-        {
-          expiresIn: '7d'
-        }
-      );
-
-    return res.json({
-      success: true,
-      message: 'Login berhasil.',
-      data: {
-        token,
-        user
-      }
-    });
-
-  } catch (error) {
-
-    console.error(
-      'Member Login Error:',
-      error
-    );
-
-    return res.status(500).json({
-      success: false,
-      message:
-        'Login gagal karena terjadi kesalahan server/database.'
-    });
-  }
-});
-
-// ======================================================
-// MEMBER - CEK PROFILE
-// ======================================================
-
-app.get(
-  '/api/auth/me',
-  verifyToken,
-  async (req, res) => {
-
-    try {
-
-      const [rows] =
-        await pool.execute(
-          `
-          SELECT
-            id,
-            username,
-            phone,
-            bank_name,
-            account_name,
-            account_number,
-            referral_code,
-            balance,
-            status,
-            role,
-            created_at
-          FROM users
-          WHERE id = ?
-          LIMIT 1
-          `,
-          [req.user.id]
-        );
-
-      if (!rows.length) {
         return res.status(404).json({
           success: false,
-          message:
-            'Data member tidak ditemukan.'
+          message: 'User tidak ditemukan.'
         });
+
       }
+
 
       return res.json({
         success: true,
-        data: {
-          user: publicUser(rows[0])
-        }
+        data: publicUser(rows[0])
       });
+
 
     } catch (error) {
 
       console.error(
-        'Get Profile Error:',
+        'Auth Me Error:',
         error
       );
 
       return res.status(500).json({
         success: false,
-        message:
-          'Gagal mengambil data profile.'
+        message: 'Gagal mengambil data akun.'
       });
+
     }
+
   }
 );
 
-// ======================================================
-// ADMIN SETUP
-// ======================================================
 
-app.get('/api/admin/setup', async (req, res) => {
+// ==================================================
+// MEMBER - BUAT DEPOSIT / TOPUP
+//
+// Deposit:
+// PENDING
+// Saldo TIDAK bertambah.
+// Admin harus APPROVE.
+// ==================================================
 
-  const setupKey =
-    req.headers['x-admin-setup-key'];
+app.post(
+  '/api/transactions/deposit',
+  verifyToken,
+  async (req, res) => {
 
-  if (
-    !process.env.ADMIN_SETUP_KEY ||
-    setupKey !== process.env.ADMIN_SETUP_KEY
-  ) {
-    return res.status(403).json({
-      success: false,
-      message:
-        'Setup Admin tidak diizinkan.'
-    });
-  }
+    const {
+      amount,
+      payment_method,
+      paymentMethod,
+      description
+    } = req.body || {};
 
-  const username =
-    String(
-      process.env.ADMIN_INITIAL_USERNAME ||
-      'adminbos'
-    ).trim();
+    const nominal = parseFloat(amount);
 
-  const password =
-    process.env.ADMIN_INITIAL_PASSWORD;
+    const method =
+      payment_method ||
+      paymentMethod ||
+      'MANUAL_TRANSFER';
 
-  if (
-    !password ||
-    String(password).length < 12
-  ) {
-    return res.status(500).json({
-      success: false,
-      message:
-        'Atur ADMIN_INITIAL_PASSWORD minimal 12 karakter di Environment Variables.'
-    });
-  }
 
-  try {
+    try {
 
-    const [existing] =
-      await pool.execute(
+      if (
+        !nominal ||
+        isNaN(nominal) ||
+        nominal <= 0
+      ) {
+
+        return res.status(400).json({
+          success: false,
+          message: 'Nominal deposit tidak valid.'
+        });
+
+      }
+
+
+      // Hanya user/member
+      if (req.user.role === 'admin') {
+
+        return res.status(403).json({
+          success: false,
+          message: 'Admin tidak dapat membuat deposit member.'
+        });
+
+      }
+
+
+      // Pastikan user masih aktif
+      const [users] = await pool.execute(
         `
-        SELECT id
+        SELECT
+          id,
+          username,
+          status
         FROM users
-        WHERE username = ?
+        WHERE id = ?
         LIMIT 1
         `,
-        [username]
+        [req.user.id]
       );
 
-    if (existing.length) {
-      return res.status(409).json({
-        success: false,
+
+      if (users.length === 0) {
+
+        return res.status(404).json({
+          success: false,
+          message: 'Akun tidak ditemukan.'
+        });
+
+      }
+
+
+      if (
+        users[0].status &&
+        users[0].status.toLowerCase() !== 'active'
+      ) {
+
+        return res.status(403).json({
+          success: false,
+          message: 'Akun Anda tidak aktif.'
+        });
+
+      }
+
+
+      const trxCode =
+        generateTrxCode('DEP');
+
+
+      const [result] = await pool.execute(
+        `
+        INSERT INTO transactions
+        (
+          user_id,
+          transaction_code,
+          type,
+          amount,
+          status,
+          payment_method,
+          description
+        )
+        VALUES
+        (
+          ?,
+          ?,
+          'TOPUP',
+          ?,
+          'PENDING',
+          ?,
+          ?
+        )
+        `,
+        [
+          req.user.id,
+          trxCode,
+          nominal,
+          method,
+          description ||
+            'Permintaan deposit member'
+        ]
+      );
+
+
+      return res.status(201).json({
+
+        success: true,
+
         message:
-          'Username Admin sudah tersedia.'
+          'Deposit berhasil diajukan dan menunggu persetujuan Admin.',
+
+        data: {
+          id: result.insertId,
+          transactionId: result.insertId,
+          transaction_code: trxCode,
+          type: 'TOPUP',
+          amount: nominal,
+          status: 'PENDING'
+        }
+
       });
+
+
+    } catch (error) {
+
+      console.error(
+        'Member Deposit Error:',
+        error
+      );
+
+      return res.status(500).json({
+
+        success: false,
+
+        message:
+          'Gagal membuat permintaan deposit.'
+
+      });
+
     }
 
-    const passwordHash =
-      await bcrypt.hash(
-        String(password),
-        12
+  }
+);
+
+
+// ==================================================
+// ALIAS DEPOSIT
+// Untuk frontend yang mungkin memakai /topup
+// ==================================================
+
+app.post(
+  '/api/transactions/topup',
+  verifyToken,
+  async (req, res) => {
+
+    req.url = '/api/transactions/deposit';
+
+    const {
+      amount,
+      payment_method,
+      paymentMethod,
+      description
+    } = req.body || {};
+
+    const nominal = parseFloat(amount);
+
+    const method =
+      payment_method ||
+      paymentMethod ||
+      'MANUAL_TRANSFER';
+
+
+    try {
+
+      if (
+        !nominal ||
+        isNaN(nominal) ||
+        nominal <= 0
+      ) {
+
+        return res.status(400).json({
+          success: false,
+          message: 'Nominal deposit tidak valid.'
+        });
+
+      }
+
+
+      const trxCode =
+        generateTrxCode('DEP');
+
+
+      const [result] = await pool.execute(
+        `
+        INSERT INTO transactions
+        (
+          user_id,
+          transaction_code,
+          type,
+          amount,
+          status,
+          payment_method,
+          description
+        )
+        VALUES
+        (
+          ?,
+          ?,
+          'TOPUP',
+          ?,
+          'PENDING',
+          ?,
+          ?
+        )
+        `,
+        [
+          req.user.id,
+          trxCode,
+          nominal,
+          method,
+          description ||
+            'Permintaan deposit member'
+        ]
       );
 
-    await pool.execute(
-      `
-      INSERT INTO users
-      (
-        username,
-        password_hash,
-        phone,
-        bank_name,
-        account_name,
-        account_number,
-        balance,
-        status,
-        role
-      )
-      VALUES
-      (
-        ?,
-        ?,
-        ?,
-        'ADMIN',
-        'ADMIN PASTIBOS',
-        'ADMIN',
-        0,
-        'active',
-        'admin'
-      )
-      `,
-      [
-        username,
-        passwordHash,
-        ''
-      ]
-    );
 
-    return res.status(201).json({
-      success: true,
-      message:
-        'Akun Admin awal berhasil dibuat.',
-      data: {
-        username
-      }
-    });
+      return res.status(201).json({
 
-  } catch (error) {
+        success: true,
 
-    console.error(
-      'Admin Setup Error:',
-      error
-    );
+        message:
+          'Deposit berhasil diajukan dan menunggu persetujuan Admin.',
 
-    return res.status(500).json({
-      success: false,
-      message:
-        'Gagal membuat akun Admin.'
-    });
+        data: {
+          id: result.insertId,
+          transactionId: result.insertId,
+          transaction_code: trxCode,
+          type: 'TOPUP',
+          amount: nominal,
+          status: 'PENDING'
+        }
+
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        'Topup Error:',
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message: 'Gagal membuat permintaan deposit.'
+      });
+
+    }
+
   }
-});
+);
 
-// ======================================================
+
+// ==================================================
+// MEMBER - WITHDRAW
+//
+// Catatan:
+// Withdraw normalnya langsung dibuat PENDING.
+// Saldo belum dipotong sampai proses withdrawal
+// disetujui/selesai oleh sistem/admin.
+//
+// Karena frontend Dashboard belum diberikan di sini,
+// endpoint dibuat fleksibel.
+// ==================================================
+
+app.post(
+  '/api/transactions/withdraw',
+  verifyToken,
+  async (req, res) => {
+
+    const {
+      amount,
+      payment_method,
+      paymentMethod,
+      description
+    } = req.body || {};
+
+    const nominal = parseFloat(amount);
+
+    const method =
+      payment_method ||
+      paymentMethod ||
+      'MANUAL_TRANSFER';
+
+
+    try {
+
+      if (
+        !nominal ||
+        isNaN(nominal) ||
+        nominal <= 0
+      ) {
+
+        return res.status(400).json({
+          success: false,
+          message: 'Nominal withdraw tidak valid.'
+        });
+
+      }
+
+
+      if (req.user.role === 'admin') {
+
+        return res.status(403).json({
+          success: false,
+          message: 'Admin tidak dapat membuat withdraw member.'
+        });
+
+      }
+
+
+      const conn =
+        await pool.getConnection();
+
+
+      try {
+
+        await conn.beginTransaction();
+
+
+        const [users] =
+          await conn.execute(
+            `
+            SELECT
+              id,
+              username,
+              balance,
+              status
+            FROM users
+            WHERE id = ?
+            FOR UPDATE
+            `,
+            [req.user.id]
+          );
+
+
+        if (users.length === 0) {
+
+          await conn.rollback();
+
+          return res.status(404).json({
+            success: false,
+            message: 'Akun tidak ditemukan.'
+          });
+
+        }
+
+
+        const user = users[0];
+
+
+        if (
+          user.status &&
+          user.status.toLowerCase() !== 'active'
+        ) {
+
+          await conn.rollback();
+
+          return res.status(403).json({
+            success: false,
+            message: 'Akun Anda tidak aktif.'
+          });
+
+        }
+
+
+        const currentBalance =
+          parseFloat(user.balance || 0);
+
+
+        if (currentBalance < nominal) {
+
+          await conn.rollback();
+
+          return res.status(400).json({
+            success: false,
+            message: 'Saldo tidak mencukupi untuk withdraw.'
+          });
+
+        }
+
+
+        /*
+        ------------------------------------------------
+        PENTING:
+        Saldo belum dipotong ketika status PENDING.
+
+        Dengan begitu:
+        Withdraw pending = saldo masih terlihat utuh.
+        ------------------------------------------------
+        */
+
+        const trxCode =
+          generateTrxCode('WD');
+
+
+        const [result] =
+          await conn.execute(
+            `
+            INSERT INTO transactions
+            (
+              user_id,
+              transaction_code,
+              type,
+              amount,
+              status,
+              payment_method,
+              description
+            )
+            VALUES
+            (
+              ?,
+              ?,
+              'WITHDRAW',
+              ?,
+              'PENDING',
+              ?,
+              ?
+            )
+            `,
+            [
+              req.user.id,
+              trxCode,
+              nominal,
+              method,
+              description ||
+                'Permintaan withdraw member'
+            ]
+          );
+
+
+        await conn.commit();
+
+
+        return res.status(201).json({
+
+          success: true,
+
+          message:
+            'Withdraw berhasil diajukan dan menunggu proses Admin.',
+
+          data: {
+            id: result.insertId,
+            transactionId: result.insertId,
+            transaction_code: trxCode,
+            type: 'WITHDRAW',
+            amount: nominal,
+            status: 'PENDING',
+            balance: currentBalance
+          }
+
+        });
+
+
+      } catch (error) {
+
+        await conn.rollback();
+
+        throw error;
+
+      } finally {
+
+        conn.release();
+
+      }
+
+
+    } catch (error) {
+
+      console.error(
+        'Member Withdraw Error:',
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message: 'Gagal membuat permintaan withdraw.'
+      });
+
+    }
+
+  }
+);
+
+
+// ==================================================
+// MEMBER - RIWAYAT TRANSAKSI
+// ==================================================
+
+app.get(
+  '/api/transactions',
+  verifyToken,
+  async (req, res) => {
+
+    try {
+
+      const [rows] = await pool.execute(
+        `
+        SELECT
+          id,
+          transaction_code,
+          type,
+          amount,
+          status,
+          payment_method,
+          description,
+          created_at
+        FROM transactions
+        WHERE user_id = ?
+        ORDER BY created_at DESC
+        LIMIT 100
+        `,
+        [req.user.id]
+      );
+
+
+      const data = rows.map(t => ({
+        ...t,
+        amount: parseFloat(t.amount || 0)
+      }));
+
+
+      return res.json({
+        success: true,
+        data
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        'Member Transactions Error:',
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message: 'Gagal mengambil riwayat transaksi.'
+      });
+
+    }
+
+  }
+);
+
+
+// ==================================================
 // ADMIN LOGIN
-// Kompatibel dengan admin.html
-// ======================================================
+// ==================================================
 
 app.post(
   '/api/admin/login',
   async (req, res) => {
 
+    const {
+      username,
+      password
+    } = req.body || {};
+
+
     try {
 
-      const {
-        username,
-        password
-      } = req.body || {};
-
       if (!username || !password) {
+
         return res.status(400).json({
           success: false,
-          message:
-            'Username dan password wajib diisi!'
+          message: 'Username dan password wajib diisi!'
         });
+
       }
 
-      const [rows] =
-        await pool.execute(
-          `
-          SELECT *
-          FROM users
-          WHERE username = ?
-          AND role = 'admin'
-          LIMIT 1
-          `,
-          [username]
-        );
 
-      if (!rows.length) {
+      const [rows] = await pool.execute(
+        `
+        SELECT *
+        FROM users
+        WHERE username = ?
+        AND role = 'admin'
+        LIMIT 1
+        `,
+        [username]
+      );
+
+
+      if (rows.length === 0) {
+
         return res.status(401).json({
           success: false,
           message:
             'Akun Admin tidak ditemukan atau bukan berstatus Admin!'
         });
+
       }
 
-      const admin =
-        rows[0];
 
-      const passwordMatch =
+      const admin = rows[0];
+
+
+      const isMatch =
         await bcrypt.compare(
-          String(password),
-          admin.password_hash || ''
+          password,
+          admin.password_hash
         );
 
-      if (!passwordMatch) {
+
+      if (!isMatch) {
+
         return res.status(401).json({
           success: false,
-          message:
-            'Password admin salah!'
+          message: 'Password admin salah!'
         });
+
       }
+
 
       if (
-        String(admin.status || 'active')
-          .toLowerCase() !== 'active'
+        admin.status &&
+        admin.status.toLowerCase() !== 'active'
       ) {
+
         return res.status(403).json({
           success: false,
-          message:
-            'Akun Admin sedang tidak aktif.'
+          message: 'Akun Admin sedang tidak aktif.'
         });
+
       }
 
-      const token =
-        jwt.sign(
-          {
-            id: admin.id,
-            username: admin.username,
-            role: 'admin'
-          },
-          JWT_SECRET,
-          {
-            expiresIn: '7d'
-          }
-        );
 
-      return res.status(200).json({
+      const token = jwt.sign(
+        {
+          id: admin.id,
+          username: admin.username,
+          role: 'admin'
+        },
+        JWT_SECRET,
+        {
+          expiresIn: '7d'
+        }
+      );
+
+
+      return res.json({
+
         success: true,
-        message:
-          'Login Admin Berhasil!',
+
+        message: 'Login Admin Berhasil!',
+
         data: {
           token,
           username: admin.username
         }
+
       });
+
 
     } catch (error) {
 
@@ -817,16 +1360,126 @@ app.post(
 
       return res.status(500).json({
         success: false,
-        message:
-          'Server error saat login admin.'
+        message: 'Server error saat login admin.'
       });
+
     }
+
   }
 );
 
-// ======================================================
-// ADMIN - AMBIL SEMUA MEMBER
-// ======================================================
+
+// ==================================================
+// ADMIN SETUP
+// ==================================================
+
+app.get(
+  '/api/admin/setup',
+  async (req, res) => {
+
+    try {
+
+      const [existing] =
+        await pool.execute(
+          `
+          SELECT id
+          FROM users
+          WHERE username = 'adminbos'
+          LIMIT 1
+          `
+        );
+
+
+      if (existing.length > 0) {
+
+        return res.json({
+          success: false,
+          message: 'Akun Admin sudah tersedia.'
+        });
+
+      }
+
+
+      const password =
+        'adminboss123';
+
+
+      const passwordHash =
+        await bcrypt.hash(
+          password,
+          10
+        );
+
+
+      await pool.execute(
+        `
+        INSERT INTO users
+        (
+          username,
+          password_hash,
+          phone,
+          bank_name,
+          account_name,
+          account_number,
+          balance,
+          status,
+          role
+        )
+        VALUES
+        (
+          'adminbos',
+          ?,
+          '08123456789',
+          'BCA',
+          'ADMIN PASTIBOS',
+          '00000000',
+          9999999.00,
+          'active',
+          'admin'
+        )
+        `,
+        [passwordHash]
+      );
+
+
+      return res.json({
+
+        success: true,
+
+        message:
+          'Berhasil membuat akun Admin pertama!',
+
+        credentials: {
+          username: 'adminbos',
+          password
+        }
+
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        'Admin Setup Error:',
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          'Gagal membuat akun admin: ' +
+          error.message
+      });
+
+    }
+
+  }
+);
+
+
+// ==================================================
+// ADMIN - SEMUA MEMBER
+// ==================================================
 
 app.get(
   '/api/admin/users',
@@ -835,41 +1488,46 @@ app.get(
 
     try {
 
-      const [rows] =
-        await pool.execute(
-          `
-          SELECT
-            id,
-            username,
-            phone,
-            bank_name,
-            account_name,
-            account_number,
-            referral_code,
-            balance,
-            status,
-            role,
-            created_at
-          FROM users
-          WHERE role != 'admin'
-          ORDER BY created_at DESC
-          `
-        );
+      const [rows] = await pool.execute(
+        `
+        SELECT
+          id,
+          username,
+          phone,
+          bank_name,
+          account_name,
+          account_number,
+          referral_code,
+          balance,
+          status,
+          role,
+          created_at
+        FROM users
+        WHERE role != 'admin'
+        ORDER BY created_at DESC
+        `
+      );
 
-      const formatted =
-        rows.map(user => ({
-          ...user,
-          balance:
-            Number(user.balance || 0)
+
+      const data =
+        rows.map(u => ({
+          ...u,
+          balance: parseFloat(
+            u.balance || 0
+          )
         }));
 
+
       return res.json({
+
         success: true,
-        count:
-          formatted.length,
-        data:
-          formatted
+
+        count: data.length,
+
+        data
+
       });
+
 
     } catch (error) {
 
@@ -880,37 +1538,39 @@ app.get(
 
       return res.status(500).json({
         success: false,
-        message:
-          'Gagal mengambil data pemain.'
+        message: 'Gagal mengambil data pemain.'
       });
+
     }
+
   }
 );
 
-// ======================================================
+
+// ==================================================
 // ADMIN - DETAIL MEMBER
-// ======================================================
+// ==================================================
 
 app.get(
   '/api/admin/users/:id',
   verifyAdmin,
   async (req, res) => {
 
+    const userId =
+      parseInt(req.params.id, 10);
+
+
+    if (isNaN(userId)) {
+
+      return res.status(400).json({
+        success: false,
+        message: 'ID member tidak valid.'
+      });
+
+    }
+
+
     try {
-
-      const userId =
-        Number(req.params.id);
-
-      if (
-        !Number.isInteger(userId) ||
-        userId <= 0
-      ) {
-        return res.status(400).json({
-          success: false,
-          message:
-            'ID member tidak valid.'
-        });
-      }
 
       const [rows] =
         await pool.execute(
@@ -935,19 +1595,22 @@ app.get(
           [userId]
         );
 
-      if (!rows.length) {
+
+      if (rows.length === 0) {
+
         return res.status(404).json({
           success: false,
-          message:
-            'Member tidak ditemukan.'
+          message: 'Member tidak ditemukan.'
         });
+
       }
+
 
       return res.json({
         success: true,
-        data:
-          publicUser(rows[0])
+        data: publicUser(rows[0])
       });
+
 
     } catch (error) {
 
@@ -958,16 +1621,28 @@ app.get(
 
       return res.status(500).json({
         success: false,
-        message:
-          'Gagal mengambil detail member.'
+        message: 'Gagal mengambil detail member.'
       });
+
     }
+
   }
 );
 
-// ======================================================
-// ADMIN - TAMBAH / KURANGI SALDO
-// ======================================================
+
+// ==================================================
+// ADMIN - TAMBAH / KURANGI SALDO MANUAL
+//
+// Ini mempertahankan fungsi Admin lama.
+//
+// ADD:
+//   saldo bertambah
+//   transaction TOPUP SUCCESS
+//
+// SUBTRACT:
+//   saldo berkurang
+//   transaction WITHDRAW SUCCESS
+// ==================================================
 
 app.post(
   '/api/admin/users/adjust-balance',
@@ -981,32 +1656,34 @@ app.post(
       note
     } = req.body || {};
 
-    const userIdNumber =
-      Number(userId);
 
     const nominal =
-      Number(amount);
+      parseFloat(amount);
+
 
     if (
-      !Number.isInteger(userIdNumber) ||
-      userIdNumber <= 0 ||
-      !Number.isFinite(nominal) ||
+      !userId ||
+      isNaN(nominal) ||
       nominal <= 0 ||
       !['add', 'subtract'].includes(action)
     ) {
+
       return res.status(400).json({
         success: false,
-        message:
-          'Data perubahan saldo tidak valid.'
+        message: 'Data perubahan saldo tidak valid.'
       });
+
     }
+
 
     const conn =
       await pool.getConnection();
 
+
     try {
 
       await conn.beginTransaction();
+
 
       const [rows] =
         await conn.execute(
@@ -1020,24 +1697,30 @@ app.post(
           AND role != 'admin'
           FOR UPDATE
           `,
-          [userIdNumber]
+          [userId]
         );
 
-      if (!rows.length) {
+
+      if (rows.length === 0) {
 
         await conn.rollback();
 
         return res.status(404).json({
           success: false,
-          message:
-            'Pemain tidak ditemukan.'
+          message: 'Pemain tidak ditemukan.'
         });
+
       }
 
+
       const currentBalance =
-        Number(rows[0].balance || 0);
+        parseFloat(
+          rows[0].balance || 0
+        );
+
 
       let newBalance;
+
 
       if (action === 'add') {
 
@@ -1049,6 +1732,7 @@ app.post(
         newBalance =
           currentBalance - nominal;
 
+
         if (newBalance < 0) {
 
           await conn.rollback();
@@ -1058,8 +1742,11 @@ app.post(
             message:
               'Saldo pemain tidak mencukupi.'
           });
+
         }
+
       }
+
 
       await conn.execute(
         `
@@ -1069,9 +1756,10 @@ app.post(
         `,
         [
           newBalance,
-          userIdNumber
+          userId
         ]
       );
+
 
       const trxCode =
         generateTrxCode(
@@ -1080,10 +1768,17 @@ app.post(
             : 'ADMWD'
         );
 
+
+      /*
+      PENTING:
+      Gunakan TOPUP, bukan DEPOSIT.
+      */
+
       const trxType =
         action === 'add'
           ? 'TOPUP'
           : 'WITHDRAW';
+
 
       const description =
         note ||
@@ -1092,6 +1787,7 @@ app.post(
             ? 'Penambahan saldo oleh Admin'
             : 'Pengurangan saldo oleh Admin'
         );
+
 
       await conn.execute(
         `
@@ -1112,12 +1808,12 @@ app.post(
           ?,
           ?,
           'SUCCESS',
-          'MANUAL_ADMIN',
+          'MANUAL_TRANSFER',
           ?
         )
         `,
         [
-          userIdNumber,
+          userId,
           trxCode,
           trxType,
           nominal,
@@ -1125,16 +1821,23 @@ app.post(
         ]
       );
 
+
       await conn.commit();
 
+
       return res.json({
+
         success: true,
+
         message:
           `Saldo ${rows[0].username} berhasil diubah! Saldo baru: Rp ${newBalance.toLocaleString('id-ID')}`,
+
         data: {
           newBalance
         }
+
       });
+
 
     } catch (error) {
 
@@ -1146,22 +1849,29 @@ app.post(
       );
 
       return res.status(500).json({
+
         success: false,
+
         message:
           'Gagal mengubah saldo: ' +
           error.message
+
       });
+
 
     } finally {
 
       conn.release();
+
     }
+
   }
 );
 
-// ======================================================
+
+// ==================================================
 // ADMIN - AKTIFKAN / BLOKIR MEMBER
-// ======================================================
+// ==================================================
 
 app.post(
   '/api/admin/users/toggle-status',
@@ -1173,20 +1883,19 @@ app.post(
       status
     } = req.body || {};
 
-    const userIdNumber =
-      Number(userId);
 
     if (
-      !Number.isInteger(userIdNumber) ||
-      userIdNumber <= 0 ||
+      !userId ||
       !['active', 'suspended'].includes(status)
     ) {
+
       return res.status(400).json({
         success: false,
-        message:
-          'Status tidak valid!'
+        message: 'Status tidak valid!'
       });
+
     }
+
 
     try {
 
@@ -1200,23 +1909,30 @@ app.post(
           `,
           [
             status,
-            userIdNumber
+            userId
           ]
         );
 
-      if (!result.affectedRows) {
+
+      if (result.affectedRows === 0) {
+
         return res.status(404).json({
           success: false,
-          message:
-            'Member tidak ditemukan.'
+          message: 'Member tidak ditemukan.'
         });
+
       }
 
+
       return res.json({
+
         success: true,
+
         message:
           `Status akun berhasil diubah menjadi: ${status.toUpperCase()}`
+
       });
+
 
     } catch (error) {
 
@@ -1227,16 +1943,18 @@ app.post(
 
       return res.status(500).json({
         success: false,
-        message:
-          'Gagal mengubah status akun.'
+        message: 'Gagal mengubah status akun.'
       });
+
     }
+
   }
 );
 
-// ======================================================
+
+// ==================================================
 // ADMIN - RIWAYAT TRANSAKSI
-// ======================================================
+// ==================================================
 
 app.get(
   '/api/admin/transactions',
@@ -1259,6 +1977,7 @@ app.get(
             t.created_at,
             u.username,
             u.bank_name,
+            u.account_name,
             u.account_number
           FROM transactions t
           JOIN users u
@@ -1269,20 +1988,25 @@ app.get(
           `
         );
 
-      const formatted =
+
+      const data =
         rows.map(t => ({
           ...t,
           amount:
-            Number(t.amount || 0)
+            parseFloat(t.amount || 0)
         }));
 
+
       return res.json({
+
         success: true,
-        count:
-          formatted.length,
-        data:
-          formatted
+
+        count: data.length,
+
+        data
+
       });
+
 
     } catch (error) {
 
@@ -1296,13 +2020,27 @@ app.get(
         message:
           'Gagal mengambil riwayat transaksi.'
       });
+
     }
+
   }
 );
 
-// ======================================================
+
+// ==================================================
 // ADMIN - APPROVE DEPOSIT
-// ======================================================
+//
+// ALUR:
+// PENDING
+//    ↓
+// APPROVE
+//    ↓
+// SUCCESS
+//    +
+// saldo member bertambah
+//
+// Semua dilakukan dalam SATU TRANSAKSI DB.
+// ==================================================
 
 app.post(
   '/api/admin/transactions/approve',
@@ -1310,28 +2048,304 @@ app.post(
   async (req, res) => {
 
     const transactionId =
-      Number(
-        (req.body || {}).transactionId ||
-        (req.body || {}).id
+      parseInt(
+        req.body.transactionId ||
+        req.body.id,
+        10
       );
 
-    if (
-      !Number.isInteger(transactionId) ||
-      transactionId <= 0
-    ) {
+
+    if (isNaN(transactionId)) {
+
       return res.status(400).json({
         success: false,
-        message:
-          'ID transaksi tidak valid.'
+        message: 'ID transaksi tidak valid.'
       });
+
     }
+
 
     const conn =
       await pool.getConnection();
 
+
     try {
 
       await conn.beginTransaction();
+
+
+      // --------------------------------------------
+      // LOCK TRANSACTION
+      // --------------------------------------------
+
+      const [trxRows] =
+        await conn.execute(
+          `
+          SELECT
+            id,
+            user_id,
+            type,
+            amount,
+            status,
+            transaction_code
+          FROM transactions
+          WHERE id = ?
+          FOR UPDATE
+          `,
+          [transactionId]
+        );
+
+
+      if (trxRows.length === 0) {
+
+        await conn.rollback();
+
+        return res.status(404).json({
+          success: false,
+          message: 'Transaksi tidak ditemukan.'
+        });
+
+      }
+
+
+      const trx =
+        trxRows[0];
+
+
+      // --------------------------------------------
+      // HARUS TOPUP
+      // --------------------------------------------
+
+      if (trx.type !== 'TOPUP') {
+
+        await conn.rollback();
+
+        return res.status(400).json({
+          success: false,
+          message:
+            'Transaksi ini bukan transaksi deposit/topup.'
+        });
+
+      }
+
+
+      // --------------------------------------------
+      // HARUS PENDING
+      // --------------------------------------------
+
+      if (trx.status !== 'PENDING') {
+
+        await conn.rollback();
+
+        return res.status(400).json({
+          success: false,
+          message:
+            `Transaksi sudah diproses dengan status ${trx.status}.`
+        });
+
+      }
+
+
+      // --------------------------------------------
+      // LOCK MEMBER
+      // --------------------------------------------
+
+      const [userRows] =
+        await conn.execute(
+          `
+          SELECT
+            id,
+            username,
+            balance,
+            status
+          FROM users
+          WHERE id = ?
+          FOR UPDATE
+          `,
+          [trx.user_id]
+        );
+
+
+      if (userRows.length === 0) {
+
+        await conn.rollback();
+
+        return res.status(404).json({
+          success: false,
+          message: 'Member transaksi tidak ditemukan.'
+        });
+
+      }
+
+
+      const member =
+        userRows[0];
+
+
+      if (
+        member.status &&
+        member.status.toLowerCase() !== 'active'
+      ) {
+
+        await conn.rollback();
+
+        return res.status(400).json({
+          success: false,
+          message:
+            'Akun member sedang tidak aktif.'
+        });
+
+      }
+
+
+      const currentBalance =
+        parseFloat(
+          member.balance || 0
+        );
+
+
+      const amount =
+        parseFloat(
+          trx.amount || 0
+        );
+
+
+      const newBalance =
+        currentBalance + amount;
+
+
+      // --------------------------------------------
+      // TAMBAH SALDO
+      // --------------------------------------------
+
+      await conn.execute(
+        `
+        UPDATE users
+        SET balance = ?
+        WHERE id = ?
+        `,
+        [
+          newBalance,
+          member.id
+        ]
+      );
+
+
+      // --------------------------------------------
+      // TRANSAKSI -> SUCCESS
+      // --------------------------------------------
+
+      await conn.execute(
+        `
+        UPDATE transactions
+        SET status = 'SUCCESS'
+        WHERE id = ?
+        AND status = 'PENDING'
+        `,
+        [transactionId]
+      );
+
+
+      await conn.commit();
+
+
+      return res.json({
+
+        success: true,
+
+        message:
+          `Deposit ${member.username} berhasil disetujui. Saldo bertambah Rp ${amount.toLocaleString('id-ID')}.`,
+
+        data: {
+          transactionId,
+          status: 'SUCCESS',
+          amount,
+          newBalance
+        }
+
+      });
+
+
+    } catch (error) {
+
+      await conn.rollback();
+
+      console.error(
+        'Approve Transaction Error:',
+        error
+      );
+
+      return res.status(500).json({
+
+        success: false,
+
+        message:
+          'Gagal approve transaksi: ' +
+          error.message
+
+      });
+
+
+    } finally {
+
+      conn.release();
+
+    }
+
+  }
+);
+
+
+// ==================================================
+// ADMIN - REJECT DEPOSIT
+//
+// ALUR:
+// PENDING
+//    ↓
+// REJECT
+//    ↓
+// FAILED
+//    +
+// saldo TETAP
+// ==================================================
+
+app.post(
+  '/api/admin/transactions/reject',
+  verifyAdmin,
+  async (req, res) => {
+
+    const transactionId =
+      parseInt(
+        req.body.transactionId ||
+        req.body.id,
+        10
+      );
+
+
+    const reason =
+      req.body.reason ||
+      req.body.note ||
+      'Deposit ditolak oleh Admin.';
+
+
+    if (isNaN(transactionId)) {
+
+      return res.status(400).json({
+        success: false,
+        message: 'ID transaksi tidak valid.'
+      });
+
+    }
+
+
+    const conn =
+      await pool.getConnection();
+
+
+    try {
+
+      await conn.beginTransaction();
+
 
       const [rows] =
         await conn.execute(
@@ -1349,115 +2363,299 @@ app.post(
           [transactionId]
         );
 
-      if (!rows.length) {
+
+      if (rows.length === 0) {
 
         await conn.rollback();
 
         return res.status(404).json({
           success: false,
-          message:
-            'Transaksi tidak ditemukan.'
+          message: 'Transaksi tidak ditemukan.'
         });
+
       }
+
 
       const trx =
         rows[0];
 
-      if (
-        String(trx.type)
-          .toUpperCase() !== 'TOPUP'
-      ) {
+
+      if (trx.type !== 'TOPUP') {
 
         await conn.rollback();
 
         return res.status(400).json({
           success: false,
           message:
-            'Transaksi ini bukan deposit.'
+            'Transaksi ini bukan transaksi deposit/topup.'
         });
+
       }
 
-      if (
-        String(trx.status)
-          .toUpperCase() !== 'PENDING'
-      ) {
 
-        await conn.rollback();
-
-        return res.status(409).json({
-          success: false,
-          message:
-            'Transaksi sudah diproses sebelumnya.'
-        });
-      }
-
-      const amount =
-        Number(trx.amount);
-
-      if (
-        !Number.isFinite(amount) ||
-        amount <= 0
-      ) {
+      if (trx.status !== 'PENDING') {
 
         await conn.rollback();
 
         return res.status(400).json({
           success: false,
           message:
-            'Nominal deposit tidak valid.'
+            `Transaksi sudah diproses dengan status ${trx.status}.`
         });
+
       }
+
+
+      /*
+      ------------------------------------------------
+      PENTING:
+
+      REJECT TIDAK menyentuh users.balance.
+
+      Jadi saldo member tetap sama.
+      ------------------------------------------------
+      */
+
+
+      await conn.execute(
+        `
+        UPDATE transactions
+        SET
+          status = 'FAILED',
+          description = ?
+        WHERE id = ?
+        AND status = 'PENDING'
+        `,
+        [
+          reason,
+          transactionId
+        ]
+      );
+
+
+      await conn.commit();
+
+
+      return res.json({
+
+        success: true,
+
+        message:
+          'Deposit berhasil ditolak. Saldo member tidak bertambah.',
+
+        data: {
+          transactionId,
+          status: 'FAILED'
+        }
+
+      });
+
+
+    } catch (error) {
+
+      await conn.rollback();
+
+      console.error(
+        'Reject Transaction Error:',
+        error
+      );
+
+      return res.status(500).json({
+
+        success: false,
+
+        message:
+          'Gagal reject transaksi: ' +
+          error.message
+
+      });
+
+
+    } finally {
+
+      conn.release();
+
+    }
+
+  }
+);
+
+
+// ==================================================
+// ADMIN - APPROVE WITHDRAW
+//
+// Untuk withdraw PENDING:
+// saldo baru dipotong ketika Admin approve.
+//
+// Jika frontend nanti memakai fungsi withdraw
+// dengan approval manual, endpoint ini siap dipakai.
+// ==================================================
+
+app.post(
+  '/api/admin/transactions/approve-withdraw',
+  verifyAdmin,
+  async (req, res) => {
+
+    const transactionId =
+      parseInt(
+        req.body.transactionId ||
+        req.body.id,
+        10
+      );
+
+
+    if (isNaN(transactionId)) {
+
+      return res.status(400).json({
+        success: false,
+        message: 'ID transaksi tidak valid.'
+      });
+
+    }
+
+
+    const conn =
+      await pool.getConnection();
+
+
+    try {
+
+      await conn.beginTransaction();
+
+
+      const [trxRows] =
+        await conn.execute(
+          `
+          SELECT
+            id,
+            user_id,
+            type,
+            amount,
+            status,
+            transaction_code
+          FROM transactions
+          WHERE id = ?
+          FOR UPDATE
+          `,
+          [transactionId]
+        );
+
+
+      if (trxRows.length === 0) {
+
+        await conn.rollback();
+
+        return res.status(404).json({
+          success: false,
+          message: 'Transaksi tidak ditemukan.'
+        });
+
+      }
+
+
+      const trx =
+        trxRows[0];
+
+
+      if (trx.type !== 'WITHDRAW') {
+
+        await conn.rollback();
+
+        return res.status(400).json({
+          success: false,
+          message:
+            'Transaksi ini bukan withdraw.'
+        });
+
+      }
+
+
+      if (trx.status !== 'PENDING') {
+
+        await conn.rollback();
+
+        return res.status(400).json({
+          success: false,
+          message:
+            `Transaksi sudah diproses dengan status ${trx.status}.`
+        });
+
+      }
+
 
       const [userRows] =
         await conn.execute(
           `
           SELECT
             id,
+            username,
+            balance,
             status
           FROM users
           WHERE id = ?
-          AND role != 'admin'
           FOR UPDATE
           `,
           [trx.user_id]
         );
 
-      if (!userRows.length) {
+
+      if (userRows.length === 0) {
 
         await conn.rollback();
 
         return res.status(404).json({
           success: false,
-          message:
-            'Member pemilik transaksi tidak ditemukan.'
+          message: 'Member tidak ditemukan.'
         });
+
       }
 
-      if (
-        String(userRows[0].status)
-          .toLowerCase() !== 'active'
-      ) {
+
+      const member =
+        userRows[0];
+
+
+      const currentBalance =
+        parseFloat(
+          member.balance || 0
+        );
+
+
+      const amount =
+        parseFloat(
+          trx.amount || 0
+        );
+
+
+      if (currentBalance < amount) {
 
         await conn.rollback();
 
         return res.status(400).json({
           success: false,
           message:
-            'Akun member sedang tidak aktif.'
+            'Saldo member tidak mencukupi.'
         });
+
       }
+
+
+      const newBalance =
+        currentBalance - amount;
+
 
       await conn.execute(
         `
         UPDATE users
-        SET balance = balance + ?
+        SET balance = ?
         WHERE id = ?
         `,
         [
-          amount,
-          trx.user_id
+          newBalance,
+          member.id
         ]
       );
+
 
       await conn.execute(
         `
@@ -1469,109 +2667,155 @@ app.post(
         [transactionId]
       );
 
+
       await conn.commit();
 
+
       return res.json({
+
         success: true,
+
         message:
-          'Deposit disetujui dan saldo member berhasil ditambahkan.'
+          `Withdraw ${member.username} berhasil diproses.`,
+
+        data: {
+          transactionId,
+          status: 'SUCCESS',
+          amount,
+          newBalance
+        }
+
       });
+
 
     } catch (error) {
 
       await conn.rollback();
 
       console.error(
-        'Approve Deposit Error:',
+        'Approve Withdraw Error:',
         error
       );
 
       return res.status(500).json({
         success: false,
         message:
-          'Gagal menyetujui deposit.'
+          'Gagal approve withdraw: ' +
+          error.message
       });
 
     } finally {
 
       conn.release();
+
     }
+
   }
 );
 
-// ======================================================
-// ADMIN - REJECT DEPOSIT
-// ======================================================
+
+// ==================================================
+// ADMIN - REJECT WITHDRAW
+//
+// Karena saldo withdraw belum dipotong saat PENDING,
+// reject cukup mengubah status menjadi FAILED.
+// Saldo tetap.
+// ==================================================
 
 app.post(
-  '/api/admin/transactions/reject',
+  '/api/admin/transactions/reject-withdraw',
   verifyAdmin,
   async (req, res) => {
 
     const transactionId =
-      Number(
-        (req.body || {}).transactionId ||
-        (req.body || {}).id
+      parseInt(
+        req.body.transactionId ||
+        req.body.id,
+        10
       );
 
-    if (
-      !Number.isInteger(transactionId) ||
-      transactionId <= 0
-    ) {
+
+    if (isNaN(transactionId)) {
+
       return res.status(400).json({
         success: false,
-        message:
-          'ID transaksi tidak valid.'
+        message: 'ID transaksi tidak valid.'
       });
+
     }
+
 
     try {
 
-      const [result] =
+      const [rows] =
         await pool.execute(
           `
           UPDATE transactions
-          SET status = 'REJECTED'
+          SET
+            status = 'FAILED',
+            description = ?
           WHERE id = ?
-          AND type = 'TOPUP'
+          AND type = 'WITHDRAW'
           AND status = 'PENDING'
           `,
-          [transactionId]
+          [
+            req.body.reason ||
+              req.body.note ||
+              'Withdraw ditolak oleh Admin.',
+            transactionId
+          ]
         );
 
-      if (!result.affectedRows) {
-        return res.status(404).json({
+
+      if (rows.affectedRows === 0) {
+
+        return res.status(400).json({
           success: false,
           message:
-            'Deposit pending tidak ditemukan atau sudah diproses.'
+            'Withdraw tidak ditemukan atau sudah diproses.'
         });
+
       }
 
+
       return res.json({
+
         success: true,
+
         message:
-          'Deposit berhasil ditolak.'
+          'Withdraw ditolak. Saldo member tetap.',
+
+        data: {
+          transactionId,
+          status: 'FAILED'
+        }
+
       });
+
 
     } catch (error) {
 
       console.error(
-        'Reject Deposit Error:',
+        'Reject Withdraw Error:',
         error
       );
 
       return res.status(500).json({
         success: false,
         message:
-          'Gagal menolak deposit.'
+          'Gagal reject withdraw: ' +
+          error.message
       });
+
     }
+
   }
 );
 
-// ======================================================
-// ADMIN - STATISTIK SINGKAT
-// ======================================================
+
+// ==================================================
+// ADMIN - STATISTIK
+// ==================================================
 
 app.get(
   '/api/admin/stats',
@@ -1580,46 +2824,61 @@ app.get(
 
     try {
 
-      const [users] =
-        await pool.execute(
+      const [
+        [memberRows],
+        [pendingRows],
+        [balanceRows]
+      ] = await Promise.all([
+
+        pool.execute(
           `
-          SELECT
-            COUNT(*) AS total_users,
-            COALESCE(
-              SUM(balance),
-              0
-            ) AS total_balance
+          SELECT COUNT(*) AS total
           FROM users
           WHERE role != 'admin'
           `
-        );
+        ),
 
-      const [pending] =
-        await pool.execute(
+        pool.execute(
           `
-          SELECT
-            COUNT(*) AS pending_deposits
+          SELECT COUNT(*) AS total
           FROM transactions
-          WHERE type = 'TOPUP'
-          AND status = 'PENDING'
+          WHERE status = 'PENDING'
           `
-        );
+        ),
+
+        pool.execute(
+          `
+          SELECT COALESCE(
+            SUM(balance),
+            0
+          ) AS total
+          FROM users
+          WHERE role != 'admin'
+          `
+        )
+
+      ]);
+
 
       return res.json({
+
         success: true,
+
         data: {
-          total_users:
-            Number(users[0].total_users || 0),
+          totalMembers:
+            Number(memberRows[0].total || 0),
 
-          total_balance:
-            Number(users[0].total_balance || 0),
+          pendingTransactions:
+            Number(pendingRows[0].total || 0),
 
-          pending_deposits:
-            Number(
-              pending[0].pending_deposits || 0
+          totalBalance:
+            parseFloat(
+              balanceRows[0].total || 0
             )
         }
+
       });
+
 
     } catch (error) {
 
@@ -1630,23 +2889,28 @@ app.get(
 
       return res.status(500).json({
         success: false,
-        message:
-          'Gagal mengambil statistik Admin.'
+        message: 'Gagal mengambil statistik.'
       });
+
     }
+
   }
 );
 
-// ======================================================
+
+// ==================================================
 // HALAMAN ADMIN
-// ======================================================
+// ==================================================
 
 app.get('/admin', (req, res) => {
+
   return res.redirect(
     302,
     '/admin.html'
   );
+
 });
+
 
 app.get('/admin.html', (req, res) => {
 
@@ -1661,18 +2925,26 @@ app.get('/admin.html', (req, res) => {
       'admin.html'
     )
   );
+
 });
 
-app.get('/api/admin-panel', (req, res) => {
-  return res.redirect(
-    302,
-    '/admin.html'
-  );
-});
 
-// ======================================================
+app.get(
+  '/api/admin-panel',
+  (req, res) => {
+
+    return res.redirect(
+      302,
+      '/admin.html'
+    );
+
+  }
+);
+
+
+// ==================================================
 // ERROR HANDLER
-// ======================================================
+// ==================================================
 
 app.use(
   (err, req, res, next) => {
@@ -1682,23 +2954,29 @@ app.use(
       err
     );
 
+    if (res.headersSent) {
+      return next(err);
+    }
+
     return res.status(500).json({
       success: false,
-      message:
-        'Terjadi kesalahan internal pada server.'
+      message: 'Internal server error.'
     });
+
   }
 );
 
-// ======================================================
+
+// ==================================================
 // EXPORT UNTUK VERCEL
-// ======================================================
+// ==================================================
 
 module.exports = app;
 
-// ======================================================
+
+// ==================================================
 // LOCAL DEVELOPMENT
-// ======================================================
+// ==================================================
 
 if (
   process.env.NODE_ENV !== 'production'
@@ -1707,9 +2985,12 @@ if (
   app.listen(
     PORT,
     () => {
+
       console.log(
-        `Server berjalan di port ${PORT}`
+        `PASTIBOS Server berjalan di port ${PORT}`
       );
+
     }
   );
-}
+
+      }
