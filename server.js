@@ -587,87 +587,162 @@ app.get('/api/admin/users', verifyAdmin, async (req, res) => {
 app.post('/api/admin/users/adjust-balance', verifyAdmin, async (req, res) => {
   const userId = Number(req.body?.userId);
   const amount = Number(req.body?.amount);
-  const action = String(req.body?.action || '');
+  const action = String(req.body?.action || '').trim().toLowerCase();
   const note = String(req.body?.note || '').trim();
 
-  if (!Number.isInteger(userId) || userId <= 0 || !Number.isFinite(amount) || amount <= 0 || !['add', 'bonus', 'subtract'].includes(action)) {
-    return res.status(400).json({ success: false, message: 'Data perubahan saldo tidak valid.' });
+  // Action yang diperbolehkan:
+  // add     = Tambah Saldo / Deposit
+  // bonus   = Tambah Saldo Bonus
+  // subtract = Kurangi Saldo / Withdraw
+  if (
+    !Number.isInteger(userId) ||
+    userId <= 0 ||
+    !Number.isFinite(amount) ||
+    amount <= 0 ||
+    !['add', 'bonus', 'subtract'].includes(action)
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: 'Data perubahan saldo tidak valid.'
+    });
   }
 
   const conn = await pool.getConnection();
+
   try {
     await conn.beginTransaction();
 
+    // Kunci data user selama proses transaksi
     const [rows] = await conn.execute(
-      `SELECT id, username, balance, status, role FROM users WHERE id = ? FOR UPDATE`,
+      `SELECT id, username, balance, status, role
+       FROM users
+       WHERE id = ?
+       FOR UPDATE`,
       [userId]
     );
 
     if (rows.length === 0 || rows[0].role === 'admin') {
       await conn.rollback();
-      return res.status(404).json({ success: false, message: 'Member tidak ditemukan.' });
+
+      return res.status(404).json({
+        success: false,
+        message: 'Member tidak ditemukan.'
+      });
     }
 
     const currentBalance = parseFloat(rows[0].balance || 0);
-    let newBalance = currentBalance + amount;
 
-    if (action === 'subtract') {
+    let newBalance;
+
+    // BONUS dan ADD sama-sama menambah saldo
+    if (action === 'add' || action === 'bonus') {
+      newBalance = currentBalance + amount;
+    } else {
+      // SUBTRACT mengurangi saldo
       newBalance = currentBalance - amount;
+
       if (newBalance < 0) {
         await conn.rollback();
-        return res.status(400).json({ success: false, message: 'Saldo pemain tidak mencukupi.' });
+
+        return res.status(400).json({
+          success: false,
+          message: 'Saldo pemain tidak mencukupi.'
+        });
       }
     }
 
-    await conn.execute('UPDATE users SET balance = ? WHERE id = ?', [newBalance, userId]);
+    // Update saldo user
+    await conn.execute(
+      `UPDATE users
+       SET balance = ?
+       WHERE id = ?`,
+      [newBalance, userId]
+    );
 
+    // Tentukan tipe transaksi
     const type =
-  action === 'bonus'
-    ? 'BONUS'
-    : action === 'add'
-      ? 'TOPUP'
-      : 'WITHDRAW';
+      action === 'bonus'
+        ? 'BONUS'
+        : action === 'add'
+          ? 'TOPUP'
+          : 'WITHDRAW';
 
-const trxCode =
-  action === 'bonus'
-    ? generateTrxCode('ADMBON')
-    : action === 'add'
-      ? generateTrxCode('ADMDEP')
-      : generateTrxCode('ADMWD');
-    
+    // Tentukan kode transaksi
+    const trxCode =
+      action === 'bonus'
+        ? generateTrxCode('ADMBON')
+        : action === 'add'
+          ? generateTrxCode('ADMDEP')
+          : generateTrxCode('ADMWD');
+
+    // Tentukan keterangan
     const description =
-  note ||
-  (
-    action === 'bonus'
-      ? 'Bonus oleh Admin'
-      : action === 'add'
-        ? 'Penambahan saldo oleh Admin'
-        : 'Pengurangan saldo oleh Admin'
-  );
+      note ||
+      (
+        action === 'bonus'
+          ? 'Bonus oleh Admin'
+          : action === 'add'
+            ? 'Penambahan saldo oleh Admin'
+            : 'Pengurangan saldo oleh Admin'
+      );
 
+    // Simpan riwayat transaksi
     await conn.execute(
       `INSERT INTO transactions
-       (user_id, transaction_code, type, amount, status, payment_method, description)
+       (
+         user_id,
+         transaction_code,
+         type,
+         amount,
+         status,
+         payment_method,
+         description
+       )
        VALUES (?, ?, ?, ?, 'SUCCESS', 'MANUAL_ADMIN', ?)`,
-      [userId, trxCode, type, amount, description]
+      [
+        userId,
+        trxCode,
+        type,
+        amount,
+        description
+      ]
     );
 
     await conn.commit();
 
     return res.json({
       success: true,
-      message: `Saldo ${rows[0].username} berhasil diubah! Saldo baru: Rp ${newBalance.toLocaleString('id-ID')}`,
-      data: { new_balance: newBalance, newBalance }
+      message:
+        action === 'bonus'
+          ? `Bonus untuk ${rows[0].username} berhasil ditambahkan! Saldo baru: Rp ${newBalance.toLocaleString('id-ID')}`
+          : `Saldo ${rows[0].username} berhasil diubah! Saldo baru: Rp ${newBalance.toLocaleString('id-ID')}`,
+      data: {
+        user_id: userId,
+        username: rows[0].username,
+        action,
+        type,
+        amount,
+        description,
+        new_balance: newBalance,
+        newBalance
+      }
     });
+
   } catch (error) {
     await conn.rollback();
+
     console.error('Adjust Balance Error:', error);
-    return res.status(500).json({ success: false, message: 'Gagal mengubah saldo: ' + error.message });
+
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal mengubah saldo: ' + error.message
+    });
+
   } finally {
     conn.release();
   }
 });
-
+  
 // =============================================
 // ADMIN - UPDATE DATA MEMBER
 // =============================================
@@ -852,7 +927,7 @@ app.get('/api/admin/transactions', verifyAdmin, async (req, res) => {
          u.account_number
        FROM transactions t
        JOIN users u ON t.user_id = u.id
-       WHERE t.type IN ('TOPUP', 'WITHDRAW')
+       WHERE t.type IN ('TOPUP', 'BONUS', 'WITHDRAW')
        ORDER BY t.created_at DESC, t.id DESC
        LIMIT 200`
     );
@@ -860,11 +935,19 @@ app.get('/api/admin/transactions', verifyAdmin, async (req, res) => {
     return res.json({
       success: true,
       count: rows.length,
-      data: rows.map(t => ({ ...t, amount: parseFloat(t.amount || 0) }))
+      data: rows.map(t => ({
+        ...t,
+        amount: parseFloat(t.amount || 0)
+      }))
     });
+
   } catch (error) {
     console.error('Admin Transactions Error:', error);
-    return res.status(500).json({ success: false, message: 'Gagal mengambil riwayat transaksi.' });
+
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal mengambil riwayat transaksi.'
+    });
   }
 });
 
