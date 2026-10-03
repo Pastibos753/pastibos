@@ -355,81 +355,138 @@ app.post('/api/wallet/topup', verifyToken, async (req, res) => {
   }
 });
 
-// =========================================================
-// MEMBER - WITHDRAW PENDING
-// =========================================================
-app.post('/api/wallet/withdraw', verifyToken, async (req, res) => {
-  try {
-    const amount = Number(req.body?.amount);
-    const destination = String(req.body?.destination || '').trim();
+// ===============================================
+// WITHDRAW MEMBER
+// Saldo langsung dipotong saat pengajuan
+// Jika REJECT -> saldo dikembalikan
+// Jika APPROVE -> saldo tetap berkurang
+// ===============================================
+app.post('/api/wallet/withdraw', authMiddleware, async (req, res) => {
+  const conn = await pool.getConnection();
 
-    if (!Number.isFinite(amount) || amount < 50000) {
-      return res.status(400).json({ success: false, message: 'Minimal penarikan adalah Rp 50.000.' });
+  try {
+    const { amount } = req.body;
+
+    const withdrawAmount = Math.round(Number(amount));
+
+    if (!Number.isFinite(withdrawAmount) || withdrawAmount <= 0) {
+      return res.status(400).json({
+        message: 'Jumlah withdraw tidak valid'
+      });
     }
 
-    const roundedAmount = Math.floor(amount);
+    if (withdrawAmount < 50000) {
+      return res.status(400).json({
+        message: 'Minimal withdraw Rp50.000'
+      });
+    }
 
-    const [users] = await pool.execute(
-      `SELECT id, username, balance, status, role, bank_name, account_name, account_number
-       FROM users WHERE id = ? LIMIT 1`,
+    await conn.beginTransaction();
+
+    // Kunci data user agar saldo aman dari transaksi bersamaan
+    const [users] = await conn.query(
+      `SELECT id, balance, status, role
+       FROM users
+       WHERE id = ?
+       FOR UPDATE`,
       [req.user.id]
     );
 
-    if (users.length === 0 || users[0].role === 'admin') {
-      return res.status(404).json({ success: false, message: 'Member tidak ditemukan.' });
+    if (users.length === 0) {
+      await conn.rollback();
+
+      return res.status(404).json({
+        message: 'User tidak ditemukan'
+      });
     }
 
     const user = users[0];
 
-    if (user.status !== 'active') {
-      return res.status(403).json({ success: false, message: 'Akun Anda sedang dinonaktifkan.' });
-    }
+    if (user.status !== 'ACTIVE') {
+      await conn.rollback();
 
-    const currentBalance = parseFloat(user.balance || 0);
-
-    if (roundedAmount > currentBalance) {
-      return res.status(400).json({
-        success: false,
-        message: `Saldo tidak mencukupi. Saldo Anda Rp ${currentBalance.toLocaleString('id-ID')}.`
+      return res.status(403).json({
+        message: 'Akun tidak aktif'
       });
     }
 
-    const destinationText = destination || `${user.bank_name || '-'} - ${user.account_number || '-'} a/n ${user.account_name || '-'}`;
-    const trxCode = generateTrxCode('WD');
+    const currentBalance = Number(user.balance || 0);
 
-    await pool.execute(
+    if (currentBalance < withdrawAmount) {
+      await conn.rollback();
+
+      return res.status(400).json({
+        message: 'Saldo tidak mencukupi'
+      });
+    }
+
+    // ==========================================
+    // SALDO LANGSUNG DIKURANGI
+    // ==========================================
+    const newBalance = currentBalance - withdrawAmount;
+
+    await conn.query(
+      `UPDATE users
+       SET balance = ?
+       WHERE id = ?`,
+      [newBalance, req.user.id]
+    );
+
+    // ==========================================
+    // BUAT TRANSAKSI PENDING
+    // ==========================================
+    const transactionCode =
+      'WD' +
+      Date.now() +
+      Math.floor(Math.random() * 1000);
+
+    await conn.query(
       `INSERT INTO transactions
-       (user_id, transaction_code, type, amount, status, payment_method, description)
-       VALUES (?, ?, 'WITHDRAW', ?, 'PENDING', 'BANK_TRANSFER', ?)` ,
+       (
+         user_id,
+         transaction_code,
+         type,
+         amount,
+         status,
+         payment_method,
+         description
+       )
+       VALUES (?, ?, 'WITHDRAW', ?, 'PENDING', 'BANK_TRANSFER', ?)`,
       [
         req.user.id,
-        trxCode,
-        roundedAmount,
-        `Permintaan withdraw ke ${destinationText}`
+        transactionCode,
+        withdrawAmount,
+        'Permintaan penarikan saldo'
       ]
     );
 
-    // Penting: saldo BELUM dipotong. Potong hanya saat Admin APPROVE.
-    return res.status(201).json({
+    await conn.commit();
+
+    return res.json({
       success: true,
-      message: 'Permintaan withdraw berhasil dibuat dan menunggu persetujuan Admin.',
-      data: {
-        transaction_code: trxCode,
-        type: 'WITHDRAW',
-        amount: roundedAmount,
-        status: 'PENDING',
-        new_balance: currentBalance
-      }
+      message: 'Permintaan withdraw berhasil dibuat dan saldo telah dikurangi',
+      amount: withdrawAmount,
+      new_balance: newBalance,
+      transaction_code: transactionCode
     });
+
   } catch (error) {
-    console.error('Wallet Withdraw Error:', error);
-    return res.status(500).json({ success: false, message: 'Gagal membuat transaksi withdraw.' });
+    await conn.rollback();
+
+    console.error('WITHDRAW ERROR:', error);
+
+    return res.status(500).json({
+      message: 'Terjadi kesalahan saat withdraw'
+    });
+
+  } finally {
+    conn.release();
   }
 });
 
-// =========================================================
+// ==============================================
 // MEMBER - RIWAYAT TRANSAKSI
-// =========================================================
+// =============================================
 app.get('/api/wallet/transactions', verifyToken, async (req, res) => {
   try {
     const [rows] = await pool.execute(
@@ -455,9 +512,9 @@ app.get('/api/wallet/transactions', verifyToken, async (req, res) => {
   }
 });
 
-// =========================================================
+// ===============================================
 // ADMIN LOGIN
-// =========================================================
+// =============================================
 app.post('/api/admin/login', async (req, res) => {
   try {
     const username = String(req.body?.username || '').trim();
@@ -500,9 +557,9 @@ app.post('/api/admin/login', async (req, res) => {
   }
 });
 
-// =========================================================
+// ===============================================
 // ADMIN - USERS
-// =========================================================
+// ============================================
 app.get('/api/admin/users', verifyAdmin, async (req, res) => {
   try {
     const [rows] = await pool.execute(
@@ -524,9 +581,9 @@ app.get('/api/admin/users', verifyAdmin, async (req, res) => {
   }
 });
 
-// =========================================================
+// ===========================================
 // ADMIN - ADJUST BALANCE MANUAL
-// =========================================================
+// ============================================
 app.post('/api/admin/users/adjust-balance', verifyAdmin, async (req, res) => {
   const userId = Number(req.body?.userId);
   const amount = Number(req.body?.amount);
@@ -591,9 +648,9 @@ app.post('/api/admin/users/adjust-balance', verifyAdmin, async (req, res) => {
   }
 });
 
-// =========================================================
+// =============================================
 // ADMIN - TOGGLE STATUS
-// =========================================================
+// =============================================
 app.post('/api/admin/users/toggle-status', verifyAdmin, async (req, res) => {
   const userId = Number(req.body?.userId);
   const status = String(req.body?.status || '');
@@ -619,9 +676,9 @@ app.post('/api/admin/users/toggle-status', verifyAdmin, async (req, res) => {
   }
 });
 
-// =========================================================
+// =============================================
 // ADMIN - RIWAYAT TRANSAKSI
-// =========================================================
+// ==============================================
 app.get('/api/admin/transactions', verifyAdmin, async (req, res) => {
   try {
     const [rows] = await pool.execute(
@@ -658,165 +715,212 @@ app.get('/api/admin/transactions', verifyAdmin, async (req, res) => {
   }
 });
 
-// =========================================================
-// ADMIN - APPROVE TRANSACTION
-// TOPUP  -> saldo bertambah
-// WITHDRAW -> saldo berkurang
-// Hanya PENDING yang boleh diproses.
-// =========================================================
-app.post('/api/admin/transactions/approve', verifyAdmin, async (req, res) => {
-  const transactionId = Number(req.body?.transactionId ?? req.body?.id);
-
-  if (!Number.isInteger(transactionId) || transactionId <= 0) {
-    return res.status(400).json({ success: false, message: 'ID transaksi tidak valid.' });
-  }
-
+// ======================================================
+// ADMIN APPROVE TRANSACTION
+// ======================================================
+app.post('/api/admin/transactions/approve', adminAuthMiddleware, async (req, res) => {
   const conn = await pool.getConnection();
+
   try {
+    const { transaction_id } = req.body;
+
+    if (!transaction_id) {
+      return res.status(400).json({
+        message: 'transaction_id wajib diisi'
+      });
+    }
+
     await conn.beginTransaction();
 
-    const [trxRows] = await conn.execute(
-      `SELECT id, user_id, type, amount, status, transaction_code
+    // Kunci transaksi
+    const [transactions] = await conn.query(
+      `SELECT *
        FROM transactions
        WHERE id = ?
        FOR UPDATE`,
-      [transactionId]
+      [transaction_id]
     );
 
-    if (trxRows.length === 0) {
+    if (transactions.length === 0) {
       await conn.rollback();
-      return res.status(404).json({ success: false, message: 'Transaksi tidak ditemukan.' });
+
+      return res.status(404).json({
+        message: 'Transaksi tidak ditemukan'
+      });
     }
 
-    const trx = trxRows[0];
+    const transaction = transactions[0];
 
-    if (trx.status !== 'PENDING') {
+    if (transaction.status !== 'PENDING') {
       await conn.rollback();
-      return res.status(400).json({ success: false, message: `Transaksi sudah berstatus ${trx.status}.` });
+
+      return res.status(400).json({
+        message: 'Transaksi sudah diproses'
+      });
     }
 
-    if (!['TOPUP', 'WITHDRAW'].includes(trx.type)) {
-      await conn.rollback();
-      return res.status(400).json({ success: false, message: 'Jenis transaksi tidak dapat diproses.' });
+    // ==========================================
+    // TOP UP
+    // Saat approve, saldo baru ditambahkan
+    // ==========================================
+    if (transaction.type === 'TOPUP') {
+
+      await conn.query(
+        `UPDATE users
+         SET balance = balance + ?
+         WHERE id = ?`,
+        [
+          Number(transaction.amount),
+          transaction.user_id
+        ]
+      );
     }
 
-    const [userRows] = await conn.execute(
-      `SELECT id, username, balance, status, role
-       FROM users
-       WHERE id = ?
-       FOR UPDATE`,
-      [trx.user_id]
-    );
-
-    if (userRows.length === 0 || userRows[0].role === 'admin') {
-      await conn.rollback();
-      return res.status(404).json({ success: false, message: 'Member transaksi tidak ditemukan.' });
+    // ==========================================
+    // WITHDRAW
+    //
+    // TIDAK mengurangi saldo lagi.
+    // Saldo sudah dipotong ketika member
+    // mengajukan withdraw.
+    // ==========================================
+    if (transaction.type === 'WITHDRAW') {
+      // Tidak melakukan perubahan saldo
     }
 
-    const user = userRows[0];
-    if (user.status !== 'active') {
-      await conn.rollback();
-      return res.status(400).json({ success: false, message: 'Akun member sedang dinonaktifkan.' });
-    }
-
-    const currentBalance = parseFloat(user.balance || 0);
-    const amount = parseFloat(trx.amount || 0);
-    let newBalance = currentBalance;
-
-    if (trx.type === 'TOPUP') {
-      newBalance = currentBalance + amount;
-    } else {
-      if (currentBalance < amount) {
-        await conn.rollback();
-        return res.status(400).json({
-          success: false,
-          message: `Saldo ${user.username} tidak mencukupi untuk withdraw Rp ${amount.toLocaleString('id-ID')}.`
-        });
-      }
-      newBalance = currentBalance - amount;
-    }
-
-    await conn.execute('UPDATE users SET balance = ? WHERE id = ?', [newBalance, user.id]);
-
-    await conn.execute(
+    // ==========================================
+    // UBAH STATUS MENJADI SUCCESS
+    // ==========================================
+    await conn.query(
       `UPDATE transactions
        SET status = 'SUCCESS'
-       WHERE id = ? AND status = 'PENDING'`,
-      [transactionId]
+       WHERE id = ?`,
+      [transaction_id]
     );
 
     await conn.commit();
 
     return res.json({
       success: true,
-      message: `${trx.type === 'TOPUP' ? 'Deposit' : 'Withdraw'} berhasil di-approve. Saldo ${user.username} sekarang Rp ${newBalance.toLocaleString('id-ID')}.`,
-      data: {
-        transaction_id: transactionId,
-        transaction_code: trx.transaction_code,
-        status: 'SUCCESS',
-        new_balance: newBalance
-      }
+      message: 'Transaksi berhasil disetujui'
     });
+
   } catch (error) {
     await conn.rollback();
-    console.error('Approve Transaction Error:', error);
-    return res.status(500).json({ success: false, message: 'Gagal approve transaksi: ' + error.message });
+
+    console.error('APPROVE TRANSACTION ERROR:', error);
+
+    return res.status(500).json({
+      message: 'Gagal menyetujui transaksi'
+    });
+
   } finally {
     conn.release();
   }
 });
 
-// =========================================================
-// ADMIN - REJECT TRANSACTION
-// Saldo tidak berubah.
-// =========================================================
-app.post('/api/admin/transactions/reject', verifyAdmin, async (req, res) => {
-  const transactionId = Number(req.body?.transactionId ?? req.body?.id);
-  const reason = String(req.body?.reason || 'Ditolak oleh Admin').trim();
-
-  if (!Number.isInteger(transactionId) || transactionId <= 0) {
-    return res.status(400).json({ success: false, message: 'ID transaksi tidak valid.' });
-  }
+// ============================================
+// ADMIN REJECT TRANSACTION
+// Jika WITHDRAW -> saldo dikembalikan
+// Jika TOPUP -> tidak ada perubahan saldo
+// =============================================
+app.post('/api/admin/transactions/reject', adminAuthMiddleware, async (req, res) => {
+  const conn = await pool.getConnection();
 
   try {
-    const [rows] = await pool.execute(
-      `SELECT id, type, status FROM transactions WHERE id = ? LIMIT 1`,
-      [transactionId]
+    const { transaction_id } = req.body;
+
+    if (!transaction_id) {
+      return res.status(400).json({
+        message: 'transaction_id wajib diisi'
+      });
+    }
+
+    await conn.beginTransaction();
+
+    // Kunci transaksi
+    const [transactions] = await conn.query(
+      `SELECT *
+       FROM transactions
+       WHERE id = ?
+       FOR UPDATE`,
+      [transaction_id]
     );
 
-    if (rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'Transaksi tidak ditemukan.' });
+    if (transactions.length === 0) {
+      await conn.rollback();
+
+      return res.status(404).json({
+        message: 'Transaksi tidak ditemukan'
+      });
     }
 
-    if (rows[0].status !== 'PENDING') {
-      return res.status(400).json({ success: false, message: `Transaksi sudah berstatus ${rows[0].status}.` });
+    const transaction = transactions[0];
+
+    if (transaction.status !== 'PENDING') {
+      await conn.rollback();
+
+      return res.status(400).json({
+        message: 'Transaksi sudah diproses'
+      });
     }
 
-    const [result] = await pool.execute(
+    // ==========================================
+    // JIKA WITHDRAW DITOLAK
+    // KEMBALIKAN SALDO MEMBER
+    // ==========================================
+    if (transaction.type === 'WITHDRAW') {
+
+      await conn.query(
+        `UPDATE users
+         SET balance = balance + ?
+         WHERE id = ?`,
+        [
+          Number(transaction.amount),
+          transaction.user_id
+        ]
+      );
+    }
+
+    // ==========================================
+    // JIKA TOPUP DITOLAK
+    // Tidak perlu mengubah saldo
+    // karena saldo TOPUP belum ditambahkan
+    // ==========================================
+
+    // ==========================================
+    // UBAH STATUS MENJADI FAILED
+    // ==========================================
+    await conn.query(
       `UPDATE transactions
-       SET status = 'FAILED', description = ?
-       WHERE id = ? AND status = 'PENDING'`,
-      [reason, transactionId]
+       SET status = 'FAILED'
+       WHERE id = ?`,
+      [transaction_id]
     );
 
-    if (result.affectedRows === 0) {
-      return res.status(409).json({ success: false, message: 'Transaksi sudah diproses sebelumnya.' });
-    }
+    await conn.commit();
 
     return res.json({
       success: true,
-      message: `${rows[0].type === 'TOPUP' ? 'Deposit' : 'Withdraw'} berhasil ditolak. Saldo member tidak berubah.`,
-      data: { transaction_id: transactionId, status: 'FAILED' }
+      message: 'Transaksi berhasil ditolak'
     });
+
   } catch (error) {
-    console.error('Reject Transaction Error:', error);
-    return res.status(500).json({ success: false, message: 'Gagal reject transaksi: ' + error.message });
+    await conn.rollback();
+
+    console.error('REJECT TRANSACTION ERROR:', error);
+
+    return res.status(500).json({
+      message: 'Gagal menolak transaksi'
+    });
+
+  } finally {
+    conn.release();
   }
 });
 
-// =========================================================
+// ===============================================
 // ADMIN SETUP LAMA - DIPERTAHANKAN
-// =========================================================
+// ==============================================
 app.get('/api/admin/setup', async (req, res) => {
   try {
     const [existing] = await pool.execute(
