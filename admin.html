@@ -1170,10 +1170,12 @@
             <div>
               <div class="card-user">⚙️ ${escapeHtml(m.username)}</div>
               <div class="card-phone">${escapeHtml(m.bank_name || '-')} • ${escapeHtml(m.account_number || '-')}</div>
-            </div>
-            <button class="btn-sm btn primary" onclick="openEditModal(${m.id})">
-              Ubah Data
-            </button>
+             <button
+  type="button"
+  class="btn-sm btn primary"
+  onclick="openEditModal(${m.id})">
+  Ubah Data
+</button>
           </div>
         </div>
       `).join('');
@@ -1393,36 +1395,75 @@
 }
 
     async function saveMember() {
-      const token = localStorage.getItem('pastibos_admin_token');
-      const id = document.getElementById('editId').value;
-      const phone = document.getElementById('editPhone').value.trim();
-      const bank = document.getElementById('editBank').value.trim();
-      const accName = document.getElementById('editAccountName').value.trim();
-      const accNum = document.getElementById('editAccountNumber').value.trim();
-      const status = document.getElementById('editStatus').value;
-      const btn = document.getElementById('btnSaveMember');
-      const msg = document.getElementById('editMsg');
+  const token = localStorage.getItem('pastibos_admin_token');
 
-      btn.disabled = true;
-      btn.textContent = 'Menyimpan...';
+  const id = document.getElementById('editId').value;
+  const phone = document.getElementById('editPhone').value.trim();
+  const bank_name = document.getElementById('editBank').value.trim();
+  const account_name = document.getElementById('editAccountName').value.trim();
+  const account_number = document.getElementById('editAccountNumber').value.trim();
+  const status = document.getElementById('editStatus').value;
 
-      try {
-        // Toggle status jika berubah
-        await fetch(`${API_BASE}/admin/users/toggle-status`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ userId: id, status: status })
-        });
+  const btn = document.getElementById('btnSaveMember');
+  const msg = document.getElementById('editMsg');
 
-        showToast('✅ Data status member berhasil diperbarui!');
-        closeModal('editModal');
-        loadAllData();
-      } catch (err) {
-        msg.textContent = 'Gagal menyimpan perubahan!';
-      } finally {
-        btn.disabled = false;
-        btn.textContent = '💾 SIMPAN PERUBAHAN';
-      }
+  if (!id) {
+    msg.textContent = 'ID member tidak ditemukan.';
+    return;
+  }
+
+  if (!phone || !bank_name || !account_name || !account_number) {
+    msg.textContent = 'Nomor HP, Bank, Nama Pemilik, dan Nomor Rekening wajib diisi.';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Menyimpan...';
+  msg.textContent = '';
+
+  try {
+    const res = await fetch(`${API_BASE}/admin/users/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        phone: phone,
+        bank_name: bank_name,
+        account_name: account_name,
+        account_number: account_number,
+        status: status
+      })
+    });
+
+    const data = await res.json();
+
+    if (res.ok && data.success) {
+
+      showToast('✅ Data member berhasil diperbarui!');
+
+      closeModal('editModal');
+
+      // Ambil ulang data dari database
+      await loadAllData();
+
+    } else {
+      msg.textContent = data.message || 'Gagal memperbarui data member.';
+    }
+
+  } catch (err) {
+
+    console.error('Save Member Error:', err);
+
+    msg.textContent = 'Gagal terhubung ke server.';
+
+  } finally {
+
+    btn.disabled = false;
+    btn.textContent = '💾 SIMPAN PERUBAHAN';
+
+  }
     }
 
     /* MODAL: SALDO (+ / -) */
