@@ -361,7 +361,7 @@ app.post('/api/wallet/topup', verifyToken, async (req, res) => {
 // Jika REJECT -> saldo dikembalikan
 // Jika APPROVE -> saldo tetap berkurang
 // ===============================================
-app.post('/api/wallet/withdraw', authMiddleware, async (req, res) => {
+app.post('/api/wallet/withdraw', verifyToken, async (req, res) => {
   const conn = await pool.getConnection();
 
   try {
@@ -402,7 +402,7 @@ app.post('/api/wallet/withdraw', authMiddleware, async (req, res) => {
 
     const user = users[0];
 
-    if (user.status !== 'ACTIVE') {
+    if (user.status !== 'active') {
       await conn.rollback();
 
       return res.status(403).json({
@@ -718,7 +718,7 @@ app.get('/api/admin/transactions', verifyAdmin, async (req, res) => {
 // ======================================================
 // ADMIN APPROVE TRANSACTION
 // ======================================================
-app.post('/api/admin/transactions/approve', adminAuthMiddleware, async (req, res) => {
+app.post('/api/admin/transactions/approve', verifyAdmin, async (req, res) => {
   const conn = await pool.getConnection();
 
   try {
@@ -823,7 +823,7 @@ app.post('/api/admin/transactions/approve', adminAuthMiddleware, async (req, res
 // Jika WITHDRAW -> saldo dikembalikan
 // Jika TOPUP -> tidak ada perubahan saldo
 // =============================================
-app.post('/api/admin/transactions/reject', adminAuthMiddleware, async (req, res) => {
+app.post('/api/admin/transactions/reject', verifyAdmin, async (req, res) => {
   const conn = await pool.getConnection();
 
   try {
