@@ -1190,13 +1190,68 @@
                 ${isTopup ? '+' : '-'} Rp ${(parseFloat(t.amount) || 0).toLocaleString('id-ID')}
               </strong>
             </div>
-            <div style="font-size: 11.5px; color: var(--text-muted); display: flex; justify-content: space-between;">
-              <span>Metode: ${escapeHtml(t.payment_method)}</span>
-              <span style="font-weight: 700; color: ${t.status === 'SUCCESS' ? 'var(--success)' : '#f59e0b'};">${t.status}</span>
+            <div style="font-size: 11.5px; color: var(--text-muted); display: flex; justify-content: space-between; gap: 8px;">
+              <span>Metode: ${escapeHtml(t.payment_method || '-')}</span>
+              <span style="font-weight: 700; color: ${t.status === 'SUCCESS' ? 'var(--success)' : (t.status === 'FAILED' ? '#f87171' : '#f59e0b')};">${escapeHtml(t.status)}</span>
             </div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 8px;">
+              Rekening: ${escapeHtml(t.account_name || '-')} • ${escapeHtml(t.account_number || '-')}
+            </div>
+            ${t.status === 'PENDING' ? `
+              <div style="display:flex; gap:8px; margin-top:12px;">
+                <button class="btn-sm btn primary" type="button" onclick="approveTransaction(${t.id})">✓ APPROVE</button>
+                <button class="btn-sm btn danger" type="button" onclick="rejectTransaction(${t.id})">✕ REJECT</button>
+              </div>` : ''}
           </div>
         `;
       }).join('');
+    }
+
+
+    /* APPROVE / REJECT TRANSAKSI */
+    async function prosesTransaksi(id, action) {
+      const token = localStorage.getItem('pastibos_admin_token');
+      if (!token) {
+        logout();
+        return;
+      }
+
+      const endpoint = action === 'approve' ? '/admin/transactions/approve' : '/admin/transactions/reject';
+      const pesan = action === 'approve'
+        ? 'Approve transaksi ini? Untuk deposit saldo akan bertambah, untuk withdraw saldo akan berkurang.'
+        : 'Reject transaksi ini? Saldo member tidak akan berubah.';
+
+      if (!confirm(pesan)) return;
+
+      try {
+        const res = await fetch(`${API_BASE}${endpoint}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ transactionId: id })
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast(`✓ ${data.message}`);
+          await loadAllData();
+        } else {
+          showToast(`✕ ${data.message || 'Transaksi gagal diproses.'}`);
+        }
+      } catch (err) {
+        console.error(err);
+        showToast('Gagal terhubung ke server saat memproses transaksi.');
+      }
+    }
+
+    function approveTransaction(id) {
+      prosesTransaksi(id, 'approve');
+    }
+
+    function rejectTransaction(id) {
+      prosesTransaksi(id, 'reject');
     }
 
     /* MODAL: DETAIL MEMBER */
